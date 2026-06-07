@@ -17,7 +17,6 @@ import {
 export class AcademicService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // -------- Academic Years --------
   async createYear(dto: CreateAcademicYearDto) {
     return this.prisma.$transaction(async (tx) => {
       if (dto.isCurrent) {
