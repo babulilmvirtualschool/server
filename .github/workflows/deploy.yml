@@ -20,10 +20,11 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            cd /server
+            cd "$HOME/server"
             git pull
             npm install
             npx prisma generate
             npx prisma migrate deploy
+            export NODE_OPTIONS="--max-old-space-size=512"
             npm run build
             pm2 restart nest-backend --update-env
