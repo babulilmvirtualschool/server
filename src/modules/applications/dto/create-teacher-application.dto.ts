@@ -52,7 +52,14 @@ export class CreateTeacherApplicationDto {
   currentWorkplace?: string;
 
   @ApiPropertyOptional({
-    description: 'Original filename if the applicant selected a CV (optional).',
+    description: 'R2 key from POST /applications/teachers/cv-presign upload.',
+  })
+  @IsOptional()
+  @IsString()
+  cvKey?: string;
+
+  @ApiPropertyOptional({
+    description: 'Original CV filename.',
   })
   @IsOptional()
   @IsString()

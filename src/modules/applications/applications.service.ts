@@ -7,7 +7,9 @@ import {
   AdmissionApplicationStatus,
   TeacherApplicationStatus,
 } from '@prisma/client';
+import { nanoid } from 'nanoid';
 import { PrismaService } from '../../prisma/prisma.service';
+import { R2Service } from '../media/r2.service';
 import { UsersService } from '../users/users.service';
 import { CreateAdmissionApplicationDto } from './dto/create-admission-application.dto';
 import { CreateTeacherApplicationDto } from './dto/create-teacher-application.dto';
@@ -15,14 +17,96 @@ import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
 import { UpdateAdmissionStatusDto } from './dto/update-admission-status.dto';
 import { UpdateTeacherApplicationStatusDto } from './dto/update-teacher-status.dto';
+import {
+  MAX_CV_BYTES,
+  TeacherCvPresignDto,
+} from './dto/teacher-cv-presign.dto';
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
+
+const CV_KEY_PREFIX = 'applications/teacher-cv/';
+const ALLOWED_CV_MIME = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 
 @Injectable()
 export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
+    private readonly r2: R2Service,
   ) {}
+
+  private sanitizeExt(name?: string) {
+    if (!name) return '';
+    const m = /\.[A-Za-z0-9]{1,8}$/.exec(name);
+    return m ? m[0].toLowerCase() : '';
+  }
+
+  private assertValidCvKey(key?: string | null) {
+    if (!key) return;
+    if (!key.startsWith(CV_KEY_PREFIX)) {
+      throw new BadRequestException('Invalid CV storage key');
+    }
+  }
+
+  private assertCvMime(mimeType: string, originalName?: string) {
+    if (ALLOWED_CV_MIME.has(mimeType)) return mimeType;
+    const ext = this.sanitizeExt(originalName);
+    const byExt: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    };
+    if (ext && byExt[ext]) return byExt[ext];
+    throw new BadRequestException(
+      'CV must be PDF or Word (.pdf, .doc, .docx)',
+    );
+  }
+
+  private buildCvStorageKey(originalName?: string) {
+    const ext = this.sanitizeExt(originalName);
+    return `${CV_KEY_PREFIX}${Date.now()}-${nanoid(10)}${ext}`;
+  }
+
+  /** Public presign for faculty application CV upload (browser PUT to R2). */
+  async presignTeacherCv(dto: TeacherCvPresignDto) {
+    const mimeType = this.assertCvMime(dto.mimeType, dto.originalName);
+    if (dto.size > MAX_CV_BYTES) {
+      throw new BadRequestException('CV must be 10 MB or smaller');
+    }
+    const key = this.buildCvStorageKey(dto.originalName);
+    const uploadUrl = await this.r2.presignPut({
+      key,
+      contentType: mimeType,
+    });
+    return {
+      key,
+      uploadUrl,
+      expiresIn: this.r2.presignExpiresSeconds,
+    };
+  }
+
+  /** Admin download link for a stored teacher application CV. */
+  async presignTeacherCvDownload(applicationId: string) {
+    const app = await this.prisma.teacherApplication.findUnique({
+      where: { id: applicationId },
+      select: { cvKey: true, cvOriginalName: true },
+    });
+    if (!app) throw new NotFoundException('Application not found');
+    if (!app.cvKey) {
+      throw new NotFoundException('No CV file uploaded for this application');
+    }
+    const url = await this.r2.presignGet(app.cvKey);
+    return {
+      key: app.cvKey,
+      url,
+      originalName: app.cvOriginalName,
+      expiresIn: this.r2.presignExpiresSeconds,
+    };
+  }
 
   async createAdmission(dto: CreateAdmissionApplicationDto) {
     const emailRaw = dto.email?.trim();
@@ -55,6 +139,8 @@ export class ApplicationsService {
 
   async createTeacher(dto: CreateTeacherApplicationDto) {
     const emailRaw = dto.email?.trim();
+    const cvKey = dto.cvKey?.trim() || null;
+    this.assertValidCvKey(cvKey);
     return this.prisma.teacherApplication.create({
       data: {
         firstName: dto.firstName.trim(),
@@ -67,6 +153,7 @@ export class ApplicationsService {
         highestQualification: dto.highestQualification.trim(),
         teachingExperience: dto.teachingExperience.trim(),
         currentWorkplace: dto.currentWorkplace?.trim() || null,
+        cvKey,
         cvOriginalName: dto.cvOriginalName?.trim() || null,
       },
     });

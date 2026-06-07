@@ -10,6 +10,7 @@ import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
 import { UpdateAdmissionStatusDto } from './dto/update-admission-status.dto';
 import { UpdateTeacherApplicationStatusDto } from './dto/update-teacher-status.dto';
+import { TeacherCvPresignDto } from './dto/teacher-cv-presign.dto';
 
 @ApiTags('applications')
 @Controller('applications')
@@ -21,6 +22,13 @@ export class ApplicationsController {
   @Post('admissions')
   submitAdmission(@Body() dto: CreateAdmissionApplicationDto) {
     return this.applications.createAdmission(dto);
+  }
+
+  /** Public — presign CV upload (browser PUT to R2; requires bucket CORS). */
+  @Public()
+  @Post('teachers/cv-presign')
+  presignTeacherCv(@Body() dto: TeacherCvPresignDto) {
+    return this.applications.presignTeacherCv(dto);
   }
 
   /** Public — website /apply faculty form */
@@ -45,6 +53,13 @@ export class ApplicationsController {
   @Get('teachers/:id/provision-suggestions')
   teacherProvisionSuggestions(@Param('id') id: string) {
     return this.applications.suggestProvisionForTeacherApplication(id);
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Get('teachers/:id/cv-download')
+  downloadTeacherCv(@Param('id') id: string) {
+    return this.applications.presignTeacherCvDownload(id);
   }
 
   @ApiBearerAuth()

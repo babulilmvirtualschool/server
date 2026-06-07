@@ -965,8 +965,9 @@ model TeacherApplication {
   teachingExperience   String
   currentWorkplace     String?
 
-  // Original CV filename from client; file bytes are not stored on public apply.
   cvOriginalName String?
+  /// R2 object key when CV was uploaded via public presign.
+  cvKey          String?
 
   teacherUserId String? @unique
   teacherUser   User?   @relation("TeacherApplicationProvisionedUser", fields: [teacherUserId], references: [id], onDelete: SetNull)
