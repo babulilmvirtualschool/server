@@ -1,0 +1,226 @@
+{
+  "info": {
+    "_postman_id": "bab-ul-ilm-lms",
+    "name": "Bab-ul-Ilm LMS API",
+    "description": "Core endpoints for the Bab-ul-Ilm LMS backend. Set the `baseUrl` and `accessToken` collection variables. The Login request auto-captures tokens into the variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "API", "request": { "method": "GET", "url": "{{baseUrl}}/health" } },
+        { "name": "DB",  "request": { "method": "GET", "url": "{{baseUrl}}/health/db" } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "if (data && data.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"admin@bab-ul-ilm.local\",\n  \"password\": \"Admin@12345\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" } } },
+        { "name": "Me",    "request": { "method": "GET",  "url": "{{baseUrl}}/auth/me" } },
+        { "name": "Change password", "request": { "method": "POST", "url": "{{baseUrl}}/auth/change-password",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"oldPassword\": \"...\",\n  \"newPassword\": \"...\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Users (admin)",
+      "item": [
+        { "name": "List users", "request": { "method": "GET", "url": "{{baseUrl}}/users?role=STUDENT&page=1&limit=20" } },
+        { "name": "Create teacher", "request": {
+            "method": "POST", "url": "{{baseUrl}}/users/teachers",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"teacher1@example.com\",\n  \"password\": \"Passw0rd!\",\n  \"firstName\": \"Aisha\",\n  \"lastName\": \"Khan\",\n  \"employeeCode\": \"T-0001\"\n}" } } },
+        { "name": "Create student", "request": {
+            "method": "POST", "url": "{{baseUrl}}/users/students",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"student1@example.com\",\n  \"password\": \"Passw0rd!\",\n  \"firstName\": \"Ali\",\n  \"lastName\": \"Raza\",\n  \"admissionNo\": \"S-0001\"\n}" } } },
+        { "name": "Create parent with link", "request": {
+            "method": "POST", "url": "{{baseUrl}}/users/parents",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"parent1@example.com\",\n  \"password\": \"Passw0rd!\",\n  \"firstName\": \"Noor\",\n  \"lastName\": \"Raza\",\n  \"children\": [{ \"studentId\": \"<studentUserId>\", \"relation\": \"MOTHER\", \"isPrimary\": true }]\n}" } } }
+      ]
+    },
+    {
+      "name": "Academic",
+      "item": [
+        { "name": "Create academic year", "request": {
+            "method": "POST", "url": "{{baseUrl}}/academic-years",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"2026-2027\",\n  \"startDate\": \"2026-08-01\",\n  \"endDate\": \"2027-06-30\",\n  \"isCurrent\": true\n}" } } },
+        { "name": "Create class", "request": {
+            "method": "POST", "url": "{{baseUrl}}/classes",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"academicYearId\": \"<yearId>\",\n  \"name\": \"Grade 6\",\n  \"level\": 6\n}" } } },
+        { "name": "Create section", "request": {
+            "method": "POST", "url": "{{baseUrl}}/sections",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"classId\": \"<classId>\",\n  \"name\": \"A\"\n}" } } },
+        { "name": "Create subject", "request": {
+            "method": "POST", "url": "{{baseUrl}}/subjects",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Mathematics\",\n  \"code\": \"MATH\"\n}" } } },
+        { "name": "Create course", "request": {
+            "method": "POST", "url": "{{baseUrl}}/courses",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"subjectId\": \"<subjectId>\",\n  \"sectionId\": \"<sectionId>\",\n  \"academicYearId\": \"<yearId>\",\n  \"teacherId\": \"<teacherUserId>\"\n}" } } },
+        { "name": "Enroll student", "request": {
+            "method": "POST", "url": "{{baseUrl}}/enrollments",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"studentId\": \"<studentUserId>\",\n  \"sectionId\": \"<sectionId>\",\n  \"academicYearId\": \"<yearId>\",\n  \"rollNumber\": \"01\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Content",
+      "item": [
+        { "name": "Create lesson", "request": {
+            "method": "POST", "url": "{{baseUrl}}/courses/<courseId>/lessons",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Unit 1: Algebra\",\n  \"orderIndex\": 0,\n  \"isPublished\": true\n}" } } },
+        { "name": "Create topic", "request": {
+            "method": "POST", "url": "{{baseUrl}}/lessons/<lessonId>/topics",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Linear equations\",\n  \"orderIndex\": 0\n}" } } },
+        { "name": "Add YouTube content", "request": {
+            "method": "POST", "url": "{{baseUrl}}/topics/<topicId>/content",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"VIDEO_YOUTUBE\",\n  \"title\": \"Intro lecture\",\n  \"orderIndex\": 0,\n  \"youtubeUrl\": \"https://youtu.be/dQw4w9WgXcQ\"\n}" } } },
+        { "name": "Upsert syllabus", "request": {
+            "method": "PUT", "url": "{{baseUrl}}/courses/<courseId>/syllabus",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Mathematics syllabus\",\n  \"overview\": \"...\",\n  \"sections\": [{ \"title\": \"Term 1\", \"body\": \"Algebra basics\", \"orderIndex\": 0 }]\n}" } } }
+      ]
+    },
+    {
+      "name": "Live classes",
+      "item": [
+        { "name": "Schedule", "request": {
+            "method": "POST", "url": "{{baseUrl}}/courses/<courseId>/live-classes",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Algebra lecture\",\n  \"meetingLink\": \"https://meet.google.com/xxx-yyy-zzz\",\n  \"scheduledStart\": \"2026-04-20T10:00:00.000Z\",\n  \"scheduledEnd\":   \"2026-04-20T11:00:00.000Z\",\n  \"joinBufferMinutes\": 10\n}" } } },
+        { "name": "Upcoming for me", "request": { "method": "GET", "url": "{{baseUrl}}/me/live-classes/upcoming" } },
+        { "name": "Join", "request": { "method": "POST", "url": "{{baseUrl}}/live-classes/<id>/join" } }
+      ]
+    },
+    {
+      "name": "Assignments",
+      "item": [
+        { "name": "Create", "request": {
+            "method": "POST", "url": "{{baseUrl}}/courses/<courseId>/assignments",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"HW 1\",\n  \"maxMarks\": 20,\n  \"dueDate\": \"2026-04-30T23:59:00.000Z\",\n  \"allowLate\": true\n}" } } },
+        { "name": "Submit (student)", "request": {
+            "method": "POST", "url": "{{baseUrl}}/assignments/<id>/submissions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"notes\": \"See attached PDF\",\n  \"attachments\": [{ \"key\": \"tmp/assign/...\", \"name\": \"hw1.pdf\", \"mime\": \"application/pdf\" }]\n}" } } },
+        { "name": "Grade", "request": {
+            "method": "PATCH", "url": "{{baseUrl}}/submissions/<submissionId>/grade",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"marksObtained\": 18,\n  \"feedback\": \"Good work\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Quizzes",
+      "item": [
+        { "name": "Start attempt", "request": { "method": "POST", "url": "{{baseUrl}}/quizzes/<id>/attempts" } },
+        { "name": "Save answer", "request": {
+            "method": "PATCH", "url": "{{baseUrl}}/attempts/<attemptId>/answers",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"questionId\": \"<qid>\",\n  \"selectedOptionIds\": [\"<optId>\"]\n}" } } },
+        { "name": "Report violation", "request": {
+            "method": "POST", "url": "{{baseUrl}}/attempts/<attemptId>/violations",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"TAB_HIDDEN\"\n}" } } },
+        { "name": "Submit attempt", "request": { "method": "POST", "url": "{{baseUrl}}/attempts/<attemptId>/submit" } }
+      ]
+    },
+    {
+      "name": "Attendance",
+      "item": [
+        { "name": "Bulk mark", "request": {
+            "method": "POST", "url": "{{baseUrl}}/attendance/bulk",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"date\": \"2026-04-19\",\n  \"sectionId\": \"<sectionId>\",\n  \"entries\": [{ \"studentId\": \"<uid>\", \"status\": \"PRESENT\" }]\n}" } } },
+        { "name": "My summary", "request": { "method": "GET", "url": "{{baseUrl}}/me/attendance/summary" } }
+      ]
+    },
+    {
+      "name": "Fees",
+      "item": [
+        { "name": "Create structure", "request": {
+            "method": "POST", "url": "{{baseUrl}}/fee-structures",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"classId\": \"<classId>\",\n  \"academicYearId\": \"<yearId>\",\n  \"name\": \"Grade 6 Tuition\",\n  \"components\": [{ \"name\": \"Tuition\", \"amount\": 15000, \"frequency\": \"MONTHLY\" }]\n}" } } },
+        { "name": "Generate invoices", "request": {
+            "method": "POST", "url": "{{baseUrl}}/fee-invoices/generate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"feeStructureId\": \"<id>\",\n  \"period\": \"2026-09\",\n  \"includeFrequencies\": [\"MONTHLY\"],\n  \"dueDate\": \"2026-09-10\"\n}" } } },
+        { "name": "Record payment", "request": {
+            "method": "POST", "url": "{{baseUrl}}/fee-invoices/<id>/payments",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 15000,\n  \"paidAt\": \"2026-09-05T10:00:00.000Z\",\n  \"method\": \"BANK_TRANSFER\"\n}" } } }
+      ]
+    },
+    {
+      "name": "Media",
+      "item": [
+        { "name": "Presign upload", "request": {
+            "method": "POST", "url": "{{baseUrl}}/media/presign-upload",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"purpose\": \"ASSIGNMENT_ATTACHMENT\",\n  \"fileName\": \"hw1.pdf\",\n  \"contentType\": \"application/pdf\",\n  \"sizeBytes\": 123456\n}" } } },
+        { "name": "Finalize", "request": {
+            "method": "POST", "url": "{{baseUrl}}/media/finalize",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"key\": \"tmp/assign/...\"\n}" } } },
+        { "name": "Presign download", "request": { "method": "GET", "url": "{{baseUrl}}/media/presign-download?key=tmp/assign/..." } }
+      ]
+    }
+  ]
+}
