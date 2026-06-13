@@ -57,21 +57,43 @@ export class ParentsService {
     to?: string,
   ) {
     await this.ensureParentOf(user, studentId);
-    return this.prisma.attendanceRecord.findMany({
-      where: {
-        studentId,
-        ...(from || to
-          ? {
-              date: {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
-              },
-            }
-          : {}),
+    const where = {
+      studentId,
+      ...(from || to
+        ? {
+            date: {
+              ...(from ? { gte: new Date(from) } : {}),
+              ...(to ? { lte: new Date(to) } : {}),
+            },
+          }
+        : {}),
+    };
+    const records = await this.prisma.attendanceRecord.findMany({
+      where,
+      include: {
+        course: { include: { subject: true, section: { include: { class: true } } } },
+        section: true,
+        markedBy: { select: { id: true, firstName: true, lastName: true } },
       },
-      include: { course: { include: { subject: true } }, section: true },
       orderBy: { date: 'desc' },
     });
+    const counts = records.reduce(
+      (acc, r) => {
+        acc[r.status] = (acc[r.status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { id: studentId },
+      include: { user: true },
+    });
+    return {
+      student,
+      total: records.length,
+      counts,
+      records,
+    };
   }
 
   async childResults(user: AuthUser, studentId: string) {

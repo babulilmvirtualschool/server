@@ -268,17 +268,20 @@ export class ApplicationsService {
 
   async listAdmissions(query: ListAdmissionApplicationsDto) {
     const { skip, take, page, limit } = getSkipTake(query);
-    const where = query.search
-      ? {
-          OR: [
-            { firstName: { contains: query.search, mode: 'insensitive' as const } },
-            { lastName: { contains: query.search, mode: 'insensitive' as const } },
-            { email: { contains: query.search, mode: 'insensitive' as const } },
-            { phone: { contains: query.search, mode: 'insensitive' as const } },
-            { city: { contains: query.search, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const where = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' as const } },
+              { lastName: { contains: query.search, mode: 'insensitive' as const } },
+              { email: { contains: query.search, mode: 'insensitive' as const } },
+              { phone: { contains: query.search, mode: 'insensitive' as const } },
+              { city: { contains: query.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.admissionApplication.count({ where }),
       this.prisma.admissionApplication.findMany({

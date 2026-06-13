@@ -55,6 +55,10 @@ model User {
   announcementsCreated Announcement[]       @relation("AnnouncementAuthor")
   mediaUploads         MediaAsset[]         @relation("MediaUploader")
   attendanceMarked     AttendanceRecord[]   @relation("AttendanceMarker")
+  teacherAttendanceRecorded TeacherAttendanceRecord[] @relation("TeacherAttendanceRecorder")
+  teacherLeavesReviewed TeacherLeaveRequest[] @relation("TeacherLeaveReviewer")
+  studentLeavesRequested StudentLeaveRequest[] @relation("StudentLeaveRequester")
+  studentLeavesReviewed StudentLeaveRequest[] @relation("StudentLeaveReviewer")
   gradesGiven          AssignmentGrade[]    @relation("Grader")
   feePaymentsRecorded  FeePayment[]         @relation("FeeRecorder")
   salaryPaymentsMade   SalaryPayment[]      @relation("SalaryPayer")
@@ -109,6 +113,8 @@ model TeacherProfile {
   salaryStructures TeacherSalaryStructure[]
   salaryPayments   SalaryPayment[]
   liveClasses      LiveClass[]
+  attendanceRecords TeacherAttendanceRecord[]
+  leaveRequests    TeacherLeaveRequest[]
 }
 
 model StudentProfile {
@@ -129,6 +135,7 @@ model StudentProfile {
   examResults         ExamResult[]
   invoices            FeeInvoice[]
   liveClassAttendance LiveClassAttendance[]
+  leaveRequests       StudentLeaveRequest[]
 }
 
 model ParentProfile {
@@ -246,10 +253,37 @@ model Course {
   attendance    AttendanceRecord[]
   examPapers    ExamPaper[]
   announcements Announcement[]
+  timetableSlots TimetableSlot[]
 
   @@unique([subjectId, sectionId, academicYearId])
   @@index([teacherId])
   @@index([sectionId])
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
+model TimetableSlot {
+  id        String    @id @default(cuid())
+  courseId  String
+  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  dayOfWeek DayOfWeek
+  startTime String
+  endTime   String
+  room      String?
+  label     String?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([courseId, dayOfWeek, startTime])
+  @@index([dayOfWeek, startTime])
 }
 
 enum EnrollmentStatus {
@@ -687,6 +721,83 @@ model AttendanceRecord {
   @@index([studentId, date])
   @@index([date])
   @@index([sectionId, date])
+}
+
+enum TeacherAttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  ON_LEAVE
+}
+
+model TeacherAttendanceRecord {
+  id           String   @id @default(cuid())
+  teacherId    String
+  teacher      TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+  status       TeacherAttendanceStatus
+  remarks      String?
+  recordedById String
+  recordedBy   User     @relation("TeacherAttendanceRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([teacherId, date])
+  @@index([date])
+}
+
+enum LeaveType {
+  SICK
+  CASUAL
+  EMERGENCY
+  UNPAID
+  OTHER
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model TeacherLeaveRequest {
+  id           String   @id @default(cuid())
+  teacherId    String
+  teacher      TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  type         LeaveType
+  startDate    DateTime @db.Date
+  endDate      DateTime @db.Date
+  reason       String
+  status       LeaveRequestStatus @default(PENDING)
+  requestedAt  DateTime @default(now())
+  reviewedById String?
+  reviewedBy   User?    @relation("TeacherLeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  @@index([teacherId, status])
+  @@index([status])
+}
+
+model StudentLeaveRequest {
+  id            String   @id @default(cuid())
+  studentId     String
+  student       StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type          LeaveType
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  reason        String
+  status        LeaveRequestStatus @default(PENDING)
+  requestedById String
+  requestedBy   User     @relation("StudentLeaveRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedById  String?
+  reviewedBy    User?    @relation("StudentLeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?
+  reviewNote    String?
+
+  @@index([studentId, status])
+  @@index([status])
 }
 
 // =============================================================

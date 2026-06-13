@@ -20,6 +20,8 @@ import { MediaModule } from './modules/media/media.module';
 import { ParentsModule } from './modules/parents/parents.module';
 import { HealthModule } from './modules/health/health.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
+import { LeaveModule } from './modules/leave/leave.module';
+import { TimetableModule } from './modules/timetable/timetable.module';
 
 @Module({
   imports: [
@@ -57,6 +59,8 @@ import { ApplicationsModule } from './modules/applications/applications.module';
     ParentsModule,
     HealthModule,
     ApplicationsModule,
+    LeaveModule,
+    TimetableModule,
   ],
 })
 export class AppModule {}

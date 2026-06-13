@@ -14,7 +14,9 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { AttendanceService } from './attendance.service';
+import { AttendanceReportQueryDto } from './dto/attendance-report.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
+import { MarkTeacherAttendanceDto } from './dto/teacher-attendance.dto';
 
 @ApiTags('attendance')
 @ApiBearerAuth()
@@ -57,5 +59,52 @@ export class AttendanceController {
     @Query('to') to?: string,
   ) {
     return this.svc.summaryForStudent(user.id, from, to);
+  }
+
+  @Roles(Role.TEACHER)
+  @Post('me/teacher-attendance')
+  markTeacherSelf(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: MarkTeacherAttendanceDto,
+  ) {
+    return this.svc.markTeacherSelf(user, dto);
+  }
+
+  @Roles(Role.TEACHER)
+  @Get('me/teacher-attendance')
+  myTeacherAttendance(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.listTeacherSelf(user, from, to);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('attendance/reports')
+  classReport(
+    @CurrentUser() user: AuthUser,
+    @Query() q: AttendanceReportQueryDto,
+  ) {
+    return this.svc.classReport(user, q.courseId, q.date);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('attendance/sessions')
+  sessions(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('courseId') courseId?: string,
+  ) {
+    return this.svc.listSessionsAdmin(from, to, courseId);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('courses/:courseId/roster')
+  courseRoster(
+    @CurrentUser() user: AuthUser,
+    @Param('courseId') courseId: string,
+  ) {
+    return this.svc.rosterForCourse(user, courseId);
   }
 }
