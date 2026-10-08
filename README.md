@@ -1,6 +1,6 @@
 # Bab-ul-Ilm LMS – Backend
 
-NestJS 11 + Prisma + PostgreSQL + AWS S3. JWT auth with role-based access for
+NestJS 11 + Prisma + PostgreSQL + Cloudflare R2 (S3-compatible). JWT auth with role-based access for
 **Admin**, **Teacher**, **Student**, **Parent**. See `docs/API_OVERVIEW.md` and
 the per-role guides in `docs/roles/` for integrator documentation.
 
@@ -50,6 +50,11 @@ backend/
 
 ## Local setup
 
+For the configured Windows development environment, see
+[LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md). It includes portable
+PostgreSQL 16, local upload storage, and start/stop commands. Frontend and
+backend remain separate repositories in sibling `web/` and `server/` folders.
+
 Requires: Node 20+, a reachable PostgreSQL 16 database (hosted such as
 Prisma Postgres / Neon / Supabase / RDS, or a local install), AWS account
 with an S3 bucket.
@@ -63,10 +68,10 @@ npm run prisma:seed             # initial admin + academic year
 npm run start:dev               # http://localhost:4000/api/v1
 ```
 
-- **Swagger**: http://localhost:3000/api/docs
-- **Health**: http://localhost:3000/api/v1/health (and `/health/db`)
+- **Swagger**: http://localhost:4000/api/docs
+- **Health**: http://localhost:4000/api/v1/health (and `/health/db`)
 
-Default admin (from `.env`): `admin@bab-ul-ilm.local` / `Admin@12345` (change
+Default local admin (from `.env`): `admin@babulilm.local` / `ChangeMe123!` (change
 immediately in real environments).
 
 ## Scripts
