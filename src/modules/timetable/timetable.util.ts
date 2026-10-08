@@ -1,4 +1,5 @@
 import { DayOfWeek } from '@prisma/client';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 export const DAY_ORDER: DayOfWeek[] = [
   DayOfWeek.MONDAY,
@@ -36,5 +37,5 @@ export const courseInclude = {
   subject: true,
   section: { include: { class: true } },
   academicYear: true,
-  teacher: { include: { user: true } },
+  teacher: { include: { user: { select: publicUserSelect } } },
 } as const;

@@ -12,6 +12,7 @@ import {
   CreateEnrollmentDto,
   UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class AcademicService {
@@ -88,7 +89,7 @@ export class AcademicService {
   listSections(classId?: string) {
     return this.prisma.section.findMany({
       where: classId ? { classId } : undefined,
-      include: { classTeacher: { include: { user: true } } },
+      include: { classTeacher: { include: { user: { select: publicUserSelect } } } },
     });
   }
   async getSection(id: string) {
@@ -96,8 +97,8 @@ export class AcademicService {
       where: { id },
       include: {
         class: true,
-        classTeacher: { include: { user: true } },
-        enrollments: { include: { student: { include: { user: true } } } },
+        classTeacher: { include: { user: { select: publicUserSelect } } },
+        enrollments: { include: { student: { include: { user: { select: publicUserSelect } } } } },
       },
     });
     if (!section) throw new NotFoundException('Section not found');
@@ -147,7 +148,7 @@ export class AcademicService {
       include: {
         subject: true,
         section: { include: { class: true } },
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
         academicYear: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -163,11 +164,11 @@ export class AcademicService {
           include: {
             class: true,
             enrollments: {
-              include: { student: { include: { user: true } } },
+              include: { student: { include: { user: { select: publicUserSelect } } } },
             },
           },
         },
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
         academicYear: true,
       },
     });
@@ -203,7 +204,7 @@ export class AcademicService {
       include: {
         subject: true,
         section: { include: { class: true } },
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
       },
     });
   }
@@ -236,7 +237,7 @@ export class AcademicService {
         ...(academicYearId ? { academicYearId } : {}),
       },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         section: { include: { class: true } },
       },
       orderBy: { rollNumber: 'asc' },

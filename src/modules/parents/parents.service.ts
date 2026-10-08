@@ -6,6 +6,7 @@ import {
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class ParentsService {
@@ -33,7 +34,7 @@ export class ParentsService {
           include: {
             student: {
               include: {
-                user: true,
+                user: { select: publicUserSelect },
                 enrollments: {
                   include: {
                     section: { include: { class: true } },
@@ -86,7 +87,7 @@ export class ParentsService {
     );
     const student = await this.prisma.studentProfile.findUnique({
       where: { id: studentId },
-      include: { user: true },
+      include: { user: { select: publicUserSelect } },
     });
     return {
       student,

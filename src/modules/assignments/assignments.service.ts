@@ -13,6 +13,7 @@ import {
   SubmitAssignmentDto,
   UpdateAssignmentDto,
 } from './dto/assignment.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class AssignmentsService {
@@ -156,7 +157,7 @@ export class AssignmentsService {
     return this.prisma.assignmentSubmission.findMany({
       where: { assignmentId },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         grade: true,
       },
       orderBy: { submittedAt: 'desc' },

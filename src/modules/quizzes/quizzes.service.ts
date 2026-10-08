@@ -23,6 +23,7 @@ import {
   UpdateQuizDto,
 } from './dto/quiz.dto';
 import { shuffle } from './shuffle.util';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class QuizzesService {
@@ -599,7 +600,7 @@ export class QuizzesService {
     return this.prisma.quizAttempt.findMany({
       where: { quizId },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         _count: { select: { violations: true, answers: true } },
       },
       orderBy: { submittedAt: 'desc' },
@@ -615,7 +616,7 @@ export class QuizzesService {
         },
         answers: true,
         violations: true,
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
       },
     });
     if (!attempt) throw new NotFoundException();

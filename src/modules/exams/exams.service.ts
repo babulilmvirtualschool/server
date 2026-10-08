@@ -6,6 +6,7 @@ import {
   RecordExamResultDto,
   UpdateExamDto,
 } from './dto/exam.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class ExamsService {
@@ -158,7 +159,7 @@ export class ExamsService {
   resultsForPaper(paperId: string) {
     return this.prisma.examResult.findMany({
       where: { examPaperId: paperId },
-      include: { student: { include: { user: true } } },
+      include: { student: { include: { user: { select: publicUserSelect } } } },
     });
   }
 }

@@ -12,6 +12,7 @@ import {
   GenerateInvoicesDto,
   RecordFeePaymentDto,
 } from './dto/fees.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class FeesService {
@@ -119,7 +120,7 @@ export class FeesService {
         ...(period ? { period } : {}),
       },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         payments: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -147,7 +148,7 @@ export class FeesService {
     const studentIds = p.children.map((c) => c.studentId);
     return this.prisma.feeInvoice.findMany({
       where: { studentId: { in: studentIds } },
-      include: { payments: true, student: { include: { user: true } } },
+      include: { payments: true, student: { include: { user: { select: publicUserSelect } } } },
       orderBy: { dueDate: 'desc' },
     });
   }

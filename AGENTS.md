@@ -89,8 +89,9 @@ Patterns to copy:
 - Global modules (inject anywhere without importing): `PrismaModule`, `AppConfigModule`, `MediaModule`
   (`MediaService`, `R2Service`), `NotificationsModule` (`NotificationsService.push(userId, type, title, body?, data?)`).
 - Cross-module reuse: export the service and import the module (e.g. `ApplicationsModule` imports `UsersModule`).
-- **New code must select user fields explicitly** (id, firstName, lastName, email, username, phone, avatarKey, role, isActive).
-  Don't add more `include: { user: true }` (see Known issues #1).
+- **Never `include: { user: true }`** — it returns `passwordHash`. Use `user: { select: publicUserSelect }`
+  (`common/utils/public-user.select.ts`, every column except the hash) or a narrower explicit select.
+  `TransformInterceptor` also strips `passwordHash`/`tokenHash` from every response as a safety net — don't rely on it alone.
 - Usernames: `^[a-z0-9][a-z0-9._]{2,31}$/i`, stored lower-case. The regex is duplicated in
   `common/utils/username.util.ts`, `users/dto/create-student-with-parents.dto.ts`,
   `applications/dto/update-admission-status.dto.ts`, `update-teacher-status.dto.ts` — keep in sync.
@@ -219,10 +220,9 @@ The droplet checkout is reset to `origin/main` on every deploy (a plain `git pul
 
 ## 9. Known issues & risks (verified in code — fix deliberately, not as drive-by edits)
 
-1. **Password hashes leak in API responses.** Many queries use `include: { user: true }` (e.g. `GET courses`,
-   `GET courses/:id`, `sections`, `enrollments`, attendance lists/reports/roster, `fee-invoices`, leave lists, quiz attempts,
-   live-class attendance, timetable `courseInclude`, `parents.myChildren`). `GET courses` is open to every authenticated role,
-   so any student can read teachers' bcrypt hashes. Fix by introducing a shared `publicUserSelect` and replacing these includes.
+1. ~~Password hashes leaked in API responses~~ — **fixed 2026-10-08**: all `user: true` includes now use `publicUserSelect`,
+   and `TransformInterceptor.stripSensitive` removes `passwordHash`/`tokenHash` from every response. Verified on 59 GET
+   endpoints across all roles: responses unchanged apart from the removed field.
 2. `GET media/presign-download?key=` has no ownership/ACL check — any logged-in user can fetch any object key (incl. CVs) if they know it.
 3. Read endpoints are not scoped to ownership: any authenticated user can read any course detail + roster, any assignment,
    any quiz (incl. unpublished, with explanations), all lessons (unpublished too). `GET courses/:courseId/live-classes`

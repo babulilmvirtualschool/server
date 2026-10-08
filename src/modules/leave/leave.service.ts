@@ -21,6 +21,7 @@ import { CreateStudentLeaveDto } from './dto/create-student-leave.dto';
 import { CreateTeacherLeaveDto } from './dto/create-teacher-leave.dto';
 import { ListLeavesDto } from './dto/list-leaves.dto';
 import { UpdateLeaveStatusDto } from './dto/update-leave-status.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 function parseDateOnly(value: string): Date {
   const d = new Date(value);
@@ -45,7 +46,7 @@ export class LeaveService {
   private async teacherForUser(userId: string) {
     const teacher = await this.prisma.teacherProfile.findUnique({
       where: { userId },
-      include: { user: true },
+      include: { user: { select: publicUserSelect } },
     });
     if (!teacher) throw new ForbiddenException('Teacher profile not found');
     return teacher;
@@ -54,7 +55,7 @@ export class LeaveService {
   private async studentForUser(userId: string) {
     const student = await this.prisma.studentProfile.findUnique({
       where: { userId },
-      include: { user: true },
+      include: { user: { select: publicUserSelect } },
     });
     if (!student) throw new ForbiddenException('Student profile not found');
     return student;
@@ -84,7 +85,7 @@ export class LeaveService {
         reason: dto.reason.trim(),
       },
       include: {
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
       },
     });
   }
@@ -125,7 +126,7 @@ export class LeaveService {
         take,
         orderBy: { requestedAt: 'desc' },
         include: {
-          teacher: { include: { user: true } },
+          teacher: { include: { user: { select: publicUserSelect } } },
           reviewedBy: {
             select: { id: true, firstName: true, lastName: true },
           },
@@ -162,7 +163,7 @@ export class LeaveService {
         reviewNote: dto.reviewNote?.trim() || null,
       },
       include: {
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
         reviewedBy: {
           select: { id: true, firstName: true, lastName: true },
         },
@@ -220,7 +221,7 @@ export class LeaveService {
         requestedById: user.id,
       },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
       },
     });
   }
@@ -261,7 +262,7 @@ export class LeaveService {
         take,
         orderBy: { startDate: 'desc' },
         include: {
-          student: { include: { user: true } },
+          student: { include: { user: { select: publicUserSelect } } },
           requestedBy: {
             select: { id: true, firstName: true, lastName: true, role: true },
           },
@@ -301,7 +302,7 @@ export class LeaveService {
         reviewNote: dto.reviewNote?.trim() || null,
       },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         requestedBy: {
           select: { id: true, firstName: true, lastName: true, role: true },
         },

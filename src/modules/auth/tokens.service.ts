@@ -60,7 +60,7 @@ export class TokensService {
     const tokenHash = this.hash(rawToken);
     const existing = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
-      include: { user: true },
+      include: { user: { select: { id: true, role: true } } },
     });
     if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
       return null;

@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
 import { MarkTeacherAttendanceDto } from './dto/teacher-attendance.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 function parseDateOnly(value: string): Date {
   const d = new Date(value);
@@ -91,7 +92,7 @@ export class AttendanceService {
     return this.prisma.attendanceRecord.findMany({
       where: { sectionId, date: d, courseId: null },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         markedBy: { select: { id: true, firstName: true, lastName: true } },
       },
     });
@@ -103,7 +104,7 @@ export class AttendanceService {
     return this.prisma.attendanceRecord.findMany({
       where: { courseId, date: d },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         markedBy: { select: { id: true, firstName: true, lastName: true } },
       },
     });
@@ -117,7 +118,7 @@ export class AttendanceService {
         subject: true,
         section: { include: { class: true } },
         academicYear: true,
-        teacher: { include: { user: true } },
+        teacher: { include: { user: { select: publicUserSelect } } },
       },
     });
     if (!course) throw new NotFoundException('Course not found');
@@ -137,7 +138,7 @@ export class AttendanceService {
     const records = await this.prisma.attendanceRecord.findMany({
       where: { courseId, date: d },
       include: {
-        student: { include: { user: true } },
+        student: { include: { user: { select: publicUserSelect } } },
         markedBy: { select: { id: true, firstName: true, lastName: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -218,7 +219,7 @@ export class AttendanceService {
           include: {
             subject: true,
             section: { include: { class: true } },
-            teacher: { include: { user: true } },
+            teacher: { include: { user: { select: publicUserSelect } } },
           },
         },
         markedBy: { select: { id: true, firstName: true, lastName: true } },
@@ -401,7 +402,7 @@ export class AttendanceService {
         academicYearId: course.academicYearId,
         status: EnrollmentStatus.ACTIVE,
       },
-      include: { student: { include: { user: true } } },
+      include: { student: { include: { user: { select: publicUserSelect } } } },
       orderBy: { rollNumber: 'asc' },
     });
 

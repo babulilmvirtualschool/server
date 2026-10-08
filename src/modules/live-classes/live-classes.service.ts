@@ -11,6 +11,7 @@ import {
   CreateLiveClassDto,
   UpdateLiveClassDto,
 } from './dto/live-class.dto';
+import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class LiveClassesService {
@@ -188,7 +189,7 @@ export class LiveClassesService {
   attendance(id: string) {
     return this.prisma.liveClassAttendance.findMany({
       where: { liveClassId: id },
-      include: { student: { include: { user: true } } },
+      include: { student: { include: { user: { select: publicUserSelect } } } },
     });
   }
 }
