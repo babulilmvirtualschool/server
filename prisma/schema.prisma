@@ -57,6 +57,7 @@ model User {
   attendanceMarked     AttendanceRecord[]   @relation("AttendanceMarker")
   teacherAttendanceRecorded TeacherAttendanceRecord[] @relation("TeacherAttendanceRecorder")
   teacherAttendanceReviewed TeacherAttendanceRecord[] @relation("TeacherAttendanceReviewer")
+  diaryEntriesWritten  DiaryEntry[]         @relation("DiaryAuthor")
   teacherLeavesReviewed TeacherLeaveRequest[] @relation("TeacherLeaveReviewer")
   studentLeavesRequested StudentLeaveRequest[] @relation("StudentLeaveRequester")
   studentLeavesReviewed StudentLeaveRequest[] @relation("StudentLeaveReviewer")
@@ -248,6 +249,7 @@ model Course {
 
   lessons       Lesson[]
   syllabus      Syllabus?
+  diaryEntries  DiaryEntry[]
   liveClasses   LiveClass[]
   assignments   Assignment[]
   quizzes       Quiz[]
@@ -1100,4 +1102,21 @@ model TeacherApplication {
   @@index([createdAt(sort: Desc)])
   @@index([email])
   @@index([status])
+}
+
+// Daily diary: one entry per course (subject + section) per day, written by the course teacher
+// (or an admin) and read by the section's enrolled students and their parents.
+model DiaryEntry {
+  id        String   @id @default(cuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  content   String
+  authorId  String?
+  author    User?    @relation("DiaryAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([courseId, date])
+  @@index([date])
 }

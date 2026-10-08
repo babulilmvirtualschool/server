@@ -111,7 +111,9 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (11) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008151529_teacher_attendance_approval`.
+- Migrations (12) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008155616_daily_diary`.
+- `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
+  parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
   admin approves; days created by an approved teacher leave are APPROVED `ON_LEAVE`.
 
@@ -200,7 +202,12 @@ A,T: `GET fee-structures?classId&academicYearId`; S: `GET me/invoices`; P: `GET 
 `GET teachers/:teacherId/salary-payments`; T: `GET me/salary-payments`.
 
 **timetable** — A: `POST timetable-slots`, `PATCH|DELETE timetable-slots/:id`; auth: `GET sections/:sectionId/timetable`;
-T,S: `GET me/timetable` → `{role, days, slots}`.
+T,S: `GET me/timetable` → `{role, days, slots}`. A slot has no teacher of its own: its teacher is always the course's teacher
+(`slot.course.teacher`), which the admin editor shows read-only once a subject is picked.
+
+**diary** (`modules/diary`) — A,T(owner): `POST diary` (`{courseId, date: YYYY-MM-DD, content}`; upsert per course+day),
+`DELETE diary/:id`, `GET courses/:courseId/diary?from&to` (newest first, max 60); S: `GET me/diary?date` (all subjects of the student's
+active sections); P: `GET children/:studentId/diary?date` (link verified).
 
 **announcements** — A,T: `POST announcements` (T only `COURSE` with own courseId or `SECTION` where class teacher), `PATCH|DELETE announcements/:id`
 (author or A); auth: `GET announcements` (visibility-filtered by role/enrollment/children).

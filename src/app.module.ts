@@ -22,6 +22,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
+import { DiaryModule } from './modules/diary/diary.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { TimetableModule } from './modules/timetable/timetable.module';
     ApplicationsModule,
     LeaveModule,
     TimetableModule,
+    DiaryModule,
   ],
 })
 export class AppModule {}
