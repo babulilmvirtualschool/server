@@ -97,6 +97,17 @@ export class ParentsService {
     };
   }
 
+  async childLeaves(user: AuthUser, studentId: string) {
+    await this.ensureParentOf(user, studentId);
+    return this.prisma.studentLeaveRequest.findMany({
+      where: { studentId },
+      orderBy: { startDate: 'desc' },
+      include: {
+        reviewedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+  }
+
   async childResults(user: AuthUser, studentId: string) {
     await this.ensureParentOf(user, studentId);
     return this.prisma.examResult.findMany({

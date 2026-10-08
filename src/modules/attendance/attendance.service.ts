@@ -4,11 +4,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EnrollmentStatus, Role } from '@prisma/client';
+import {
+  AttendanceApprovalStatus,
+  EnrollmentStatus,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
-import { MarkTeacherAttendanceDto } from './dto/teacher-attendance.dto';
+import {
+  ListTeacherAttendanceDto,
+  MarkTeacherAttendanceDto,
+  ReviewTeacherAttendanceDto,
+} from './dto/teacher-attendance.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
 
 function parseDateOnly(value: string): Date {
@@ -327,22 +335,31 @@ export class AttendanceService {
       throw new BadRequestException('Cannot mark attendance for a future date');
     }
 
+    const existing = await this.prisma.teacherAttendanceRecord.findUnique({
+      where: { teacherId_date: { teacherId: teacher.id, date } },
+    });
+    if (existing?.approvalStatus === AttendanceApprovalStatus.APPROVED) {
+      throw new BadRequestException(
+        'Attendance for this date is already approved. Contact the admin to change it.',
+      );
+    }
+
+    // Submitted to the admin; only counted once approved.
+    const pending = {
+      status: dto.status,
+      remarks: dto.remarks,
+      recordedById: user.id,
+      approvalStatus: AttendanceApprovalStatus.PENDING,
+      reviewedById: null,
+      reviewedAt: null,
+      reviewNote: null,
+    };
     return this.prisma.teacherAttendanceRecord.upsert({
       where: {
         teacherId_date: { teacherId: teacher.id, date },
       },
-      create: {
-        teacherId: teacher.id,
-        date,
-        status: dto.status,
-        remarks: dto.remarks,
-        recordedById: user.id,
-      },
-      update: {
-        status: dto.status,
-        remarks: dto.remarks,
-        recordedById: user.id,
-      },
+      create: { teacherId: teacher.id, date, ...pending },
+      update: pending,
     });
   }
 
@@ -367,15 +384,88 @@ export class AttendanceService {
     const records = await this.prisma.teacherAttendanceRecord.findMany({
       where,
       orderBy: { date: 'desc' },
+      include: {
+        reviewedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
-    const counts = records.reduce(
+    const approved = records.filter(
+      (r) => r.approvalStatus === AttendanceApprovalStatus.APPROVED,
+    );
+    return {
+      total: approved.length,
+      counts: this.countByStatus(approved),
+      pending: records.filter(
+        (r) => r.approvalStatus === AttendanceApprovalStatus.PENDING,
+      ).length,
+      records,
+    };
+  }
+
+  private countByStatus(records: { status: string }[]) {
+    return records.reduce(
       (acc, r) => {
         acc[r.status] = (acc[r.status] ?? 0) + 1;
         return acc;
       },
       {} as Record<string, number>,
     );
-    return { total: records.length, counts, records };
+  }
+
+  /** Admin — teacher attendance submissions/records with filters (max 1000 rows). */
+  async listTeacherAttendanceAdmin(q: ListTeacherAttendanceDto) {
+    const where = {
+      ...(q.approvalStatus ? { approvalStatus: q.approvalStatus } : {}),
+      ...(q.teacherId ? { teacherId: q.teacherId } : {}),
+      ...(q.from || q.to
+        ? {
+            date: {
+              ...(q.from ? { gte: parseDateOnly(q.from) } : {}),
+              ...(q.to ? { lte: parseDateOnly(q.to) } : {}),
+            },
+          }
+        : {}),
+    };
+    const records = await this.prisma.teacherAttendanceRecord.findMany({
+      where,
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      take: 1000,
+      include: {
+        teacher: { include: { user: { select: publicUserSelect } } },
+        reviewedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+    return { total: records.length, counts: this.countByStatus(records), records };
+  }
+
+  /** Admin — approve or reject a pending teacher attendance submission. */
+  async reviewTeacherAttendance(
+    id: string,
+    admin: AuthUser,
+    dto: ReviewTeacherAttendanceDto,
+  ) {
+    const record = await this.prisma.teacherAttendanceRecord.findUnique({
+      where: { id },
+    });
+    if (!record) throw new NotFoundException('Attendance record not found');
+    if (record.approvalStatus !== AttendanceApprovalStatus.PENDING) {
+      throw new BadRequestException('This attendance has already been reviewed');
+    }
+    return this.prisma.teacherAttendanceRecord.update({
+      where: { id },
+      data: {
+        approvalStatus:
+          dto.status === 'APPROVED'
+            ? AttendanceApprovalStatus.APPROVED
+            : AttendanceApprovalStatus.REJECTED,
+        reviewedById: admin.id,
+        reviewedAt: new Date(),
+        reviewNote: dto.reviewNote?.trim() || null,
+      },
+      include: {
+        teacher: { include: { user: { select: publicUserSelect } } },
+        reviewedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
   }
 
   async rosterForCourse(user: AuthUser, courseId: string) {

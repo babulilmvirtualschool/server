@@ -30,6 +30,14 @@ export class ParentsController {
     return this.svc.childAttendance(user, studentId, from, to);
   }
 
+  @Get('children/:studentId/leaves')
+  leaves(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+  ) {
+    return this.svc.childLeaves(user, studentId);
+  }
+
   @Get('children/:studentId/results')
   results(
     @CurrentUser() user: AuthUser,

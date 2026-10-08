@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -16,7 +17,11 @@ import {
 import { AttendanceService } from './attendance.service';
 import { AttendanceReportQueryDto } from './dto/attendance-report.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
-import { MarkTeacherAttendanceDto } from './dto/teacher-attendance.dto';
+import {
+  ListTeacherAttendanceDto,
+  MarkTeacherAttendanceDto,
+  ReviewTeacherAttendanceDto,
+} from './dto/teacher-attendance.dto';
 
 @ApiTags('attendance')
 @ApiBearerAuth()
@@ -78,6 +83,22 @@ export class AttendanceController {
     @Query('to') to?: string,
   ) {
     return this.svc.listTeacherSelf(user, from, to);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('teacher-attendance')
+  listTeacherAttendance(@Query() q: ListTeacherAttendanceDto) {
+    return this.svc.listTeacherAttendanceAdmin(q);
+  }
+
+  @Roles(Role.ADMIN)
+  @Patch('teacher-attendance/:id')
+  reviewTeacherAttendance(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ReviewTeacherAttendanceDto,
+  ) {
+    return this.svc.reviewTeacherAttendance(id, user, dto);
   }
 
   @Roles(Role.ADMIN, Role.TEACHER)

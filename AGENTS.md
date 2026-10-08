@@ -111,7 +111,9 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (10) in `prisma/migrations/` — from `20260419003326_initiate` to `20260614120000_timetable_slots`.
+- Migrations (11) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008151529_teacher_attendance_approval`.
+- `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
+  admin approves; days created by an approved teacher leave are APPROVED `ON_LEAVE`.
 
 ## 6. Auth details (`modules/auth`)
 
@@ -179,9 +181,13 @@ auth: `GET exams?academicYearId`, `GET exams/:id` (with papers); S: `GET me/resu
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,
 `GET attendance/reports?courseId&date`, `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
-S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates).
+S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
+status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
+A: `GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
+(`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING).
 
-**leave** — T: `POST|GET me/teacher-leaves`; S: `POST|GET me/student-leaves`; A: `GET teacher-leaves?status`, `PATCH teacher-leaves/:id`,
+**leave** — T: `POST|GET me/teacher-leaves`, `GET me/class-student-leaves?status&page` (leave of students actively enrolled in sections the
+teacher teaches or is class teacher of); S: `POST|GET me/student-leaves`; A: `GET teacher-leaves?status`, `PATCH teacher-leaves/:id`,
 `GET student-leaves?status`, `PATCH student-leaves/:id` (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING can be reviewed).
 Approval writes attendance: teacher → `ON_LEAVE` per day; student → `EXCUSED` homeroom + every course of each active enrollment per day.
 
@@ -205,7 +211,7 @@ T,S: `GET me/timetable` → `{role, days, slots}`.
 `POST media/finalize` (`{key}`; own uploads, A any), `GET media/presign-download?key=`.
 
 **parents** (P, class-level) — `GET me/children` (links with student, user, enrollments), `GET children/:studentId/attendance?from&to`,
-`GET children/:studentId/results`, `GET children/:studentId/invoices`. `studentId` = StudentProfile.id; link verified.
+`GET children/:studentId/leaves`, `GET children/:studentId/results`, `GET children/:studentId/invoices`. `studentId` = StudentProfile.id; link verified.
 
 ## 8. Deployment
 

@@ -48,6 +48,12 @@ export class LeaveController {
     return this.leave.listMyStudentLeaves(user, q);
   }
 
+  @Roles(Role.TEACHER)
+  @Get('me/class-student-leaves')
+  classStudentLeaves(@CurrentUser() user: AuthUser, @Query() q: ListLeavesDto) {
+    return this.leave.listStudentLeavesForTeacher(user, q);
+  }
+
   @Roles(Role.ADMIN)
   @Get('teacher-leaves')
   listTeacherLeaves(@Query() q: ListLeavesDto) {

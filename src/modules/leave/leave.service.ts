@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AttendanceApprovalStatus,
   AttendanceStatus,
   EnrollmentStatus,
   LeaveRequestStatus,
@@ -182,6 +183,13 @@ export class LeaveService {
     recordedById: string,
   ) {
     const dates = eachDateInclusive(leave.startDate, leave.endDate);
+    // The leave itself was approved by the admin, so these days count as approved attendance.
+    const approval = {
+      approvalStatus: AttendanceApprovalStatus.APPROVED,
+      reviewedById: recordedById,
+      reviewedAt: new Date(),
+      reviewNote: null,
+    };
     await this.prisma.$transaction(
       dates.map((date) =>
         this.prisma.teacherAttendanceRecord.upsert({
@@ -194,11 +202,13 @@ export class LeaveService {
             status: TeacherAttendanceStatus.ON_LEAVE,
             recordedById,
             remarks: 'Approved leave',
+            ...approval,
           },
           update: {
             status: TeacherAttendanceStatus.ON_LEAVE,
             recordedById,
             remarks: 'Approved leave',
+            ...approval,
           },
         }),
       ),
@@ -242,6 +252,63 @@ export class LeaveService {
         take,
         orderBy: { startDate: 'desc' },
         include: {
+          reviewedBy: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+      }),
+    ]);
+    return paginate(data, total, page, limit);
+  }
+
+  /** Teacher — leave of students actively enrolled in sections the teacher teaches or is class teacher of. */
+  async listStudentLeavesForTeacher(user: AuthUser, query: ListLeavesDto) {
+    if (user.role !== Role.TEACHER) throw new ForbiddenException();
+    const teacher = await this.teacherForUser(user.id);
+    const { skip, take, page, limit } = getSkipTake(query);
+    const [courses, homerooms] = await Promise.all([
+      this.prisma.course.findMany({
+        where: { teacherId: teacher.id },
+        select: { sectionId: true },
+      }),
+      this.prisma.section.findMany({
+        where: { classTeacherId: teacher.id },
+        select: { id: true },
+      }),
+    ]);
+    const sectionIds = [
+      ...new Set([
+        ...courses.map((c) => c.sectionId),
+        ...homerooms.map((s) => s.id),
+      ]),
+    ];
+    if (!sectionIds.length) return paginate([], 0, page, limit);
+
+    const inMySections = {
+      sectionId: { in: sectionIds },
+      status: EnrollmentStatus.ACTIVE,
+    };
+    const where = {
+      student: { enrollments: { some: inMySections } },
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [total, data] = await this.prisma.$transaction([
+      this.prisma.studentLeaveRequest.count({ where }),
+      this.prisma.studentLeaveRequest.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { startDate: 'desc' },
+        include: {
+          student: {
+            include: {
+              user: { select: publicUserSelect },
+              enrollments: {
+                where: inMySections,
+                include: { section: { include: { class: true } } },
+              },
+            },
+          },
           reviewedBy: {
             select: { id: true, firstName: true, lastName: true },
           },
