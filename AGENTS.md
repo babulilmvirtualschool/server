@@ -209,11 +209,13 @@ T,S: `GET me/timetable` → `{role, days, slots}`.
 ## 8. Deployment
 
 `.github/workflows/deploy.yml`: on push to `main` → SSH to droplet (`SERVER_HOST`, `SERVER_USER`, `SSH_PRIVATE_KEY` secrets) →
-`cd $HOME/server && git pull && npm install && npx prisma generate && npx prisma migrate deploy &&
+`cd $HOME/server && git fetch origin main && git reset --hard origin/main && npm install && npx prisma generate && npx prisma migrate deploy &&
 NODE_OPTIONS=--max-old-space-size=512 npm run build && pm2 restart nest-backend --update-env`.
 So: **every migration committed to `main` runs against production automatically.** Make migrations additive /
 backward compatible, and never commit a migration you haven't applied locally. The droplet has little RAM (512 MB heap cap).
 The README's EC2/Nginx/"lms-api" section describes an older plan, not the current pipeline.
+The droplet checkout is reset to `origin/main` on every deploy (a plain `git pull` used to abort because
+`npm install` rewrites `package-lock.json` there) — never hand-edit tracked files on the droplet; untracked `.env` is kept.
 
 ## 9. Known issues & risks (verified in code — fix deliberately, not as drive-by edits)
 
