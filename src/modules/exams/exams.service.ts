@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateExamDto,
   CreateExamPaperDto,
   RecordExamResultDto,
   UpdateExamDto,
+  UpdateExamPaperDto,
 } from './dto/exam.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
 
@@ -38,11 +44,13 @@ export class ExamsService {
       where: { id },
       include: {
         papers: {
+          orderBy: { scheduledAt: 'asc' },
           include: {
             course: {
               include: { subject: true, section: { include: { class: true } } },
             },
             quiz: true,
+            _count: { select: { questions: true } },
           },
         },
       },
@@ -66,7 +74,26 @@ export class ExamsService {
     return this.prisma.exam.delete({ where: { id } });
   }
 
-  createPaper(examId: string, dto: CreateExamPaperDto) {
+  async createPaper(examId: string, dto: CreateExamPaperDto) {
+    const [exam, course] = await Promise.all([
+      this.prisma.exam.findUnique({ where: { id: examId } }),
+      this.prisma.course.findUnique({ where: { id: dto.courseId } }),
+    ]);
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (!course) throw new NotFoundException('Course not found');
+    if (course.academicYearId !== exam.academicYearId) {
+      throw new BadRequestException(
+        'This subject belongs to a different academic year than the exam',
+      );
+    }
+    const existing = await this.prisma.examPaper.findUnique({
+      where: { examId_courseId: { examId, courseId: dto.courseId } },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'This subject already has a paper in this exam for this class',
+      );
+    }
     return this.prisma.examPaper.create({
       data: {
         examId,
@@ -78,6 +105,97 @@ export class ExamsService {
         venue: dto.venue,
       },
     });
+  }
+
+  async updatePaper(paperId: string, dto: UpdateExamPaperDto) {
+    await this.findPaperOrThrow(paperId);
+    return this.prisma.examPaper.update({
+      where: { id: paperId },
+      data: {
+        ...(dto.scheduledAt ? { scheduledAt: new Date(dto.scheduledAt) } : {}),
+        ...(dto.durationMinutes !== undefined
+          ? { durationMinutes: dto.durationMinutes }
+          : {}),
+        ...(dto.maxMarks !== undefined ? { maxMarks: dto.maxMarks } : {}),
+        ...(dto.venue !== undefined ? { venue: dto.venue?.trim() || null } : {}),
+      },
+    });
+  }
+
+  /** Removes a paper from the date sheet; refused once results have been entered (they would be lost). */
+  async deletePaper(paperId: string) {
+    const paper = await this.prisma.examPaper.findUnique({
+      where: { id: paperId },
+      include: { _count: { select: { results: true } } },
+    });
+    if (!paper) throw new NotFoundException('Exam paper not found');
+    if (paper._count.results > 0) {
+      throw new ConflictException(
+        'Results have already been entered for this paper, so it cannot be removed',
+      );
+    }
+    await this.prisma.examPaper.delete({ where: { id: paperId } });
+    return { id: paperId };
+  }
+
+  private async findPaperOrThrow(paperId: string) {
+    const paper = await this.prisma.examPaper.findUnique({
+      where: { id: paperId },
+      include: { course: true },
+    });
+    if (!paper) throw new NotFoundException('Exam paper not found');
+    return paper;
+  }
+
+  /** Generated paper: schedule details + the bank questions selected for it, in order. */
+  async getPaper(paperId: string) {
+    const paper = await this.prisma.examPaper.findUnique({
+      where: { id: paperId },
+      include: {
+        exam: true,
+        course: {
+          include: { subject: true, section: { include: { class: true } } },
+        },
+        questions: {
+          orderBy: { orderIndex: 'asc' },
+          include: { question: true },
+        },
+      },
+    });
+    if (!paper) throw new NotFoundException('Exam paper not found');
+    const questionMarks = paper.questions.reduce(
+      (sum, q) => sum + q.question.marks,
+      0,
+    );
+    return { ...paper, questionMarks };
+  }
+
+  /** Paper generator: replace the paper's questions with the given bank questions (same subject), in order. */
+  async setPaperQuestions(paperId: string, questionIds: string[]) {
+    const paper = await this.findPaperOrThrow(paperId);
+    const found = await this.prisma.bankQuestion.findMany({
+      where: { id: { in: questionIds } },
+      select: { id: true, subjectId: true },
+    });
+    if (found.length !== questionIds.length) {
+      throw new BadRequestException('One or more questions were not found');
+    }
+    if (found.some((q) => q.subjectId !== paper.course.subjectId)) {
+      throw new BadRequestException(
+        "Only questions from this paper's subject can be added",
+      );
+    }
+    await this.prisma.$transaction([
+      this.prisma.examPaperQuestion.deleteMany({ where: { examPaperId: paperId } }),
+      this.prisma.examPaperQuestion.createMany({
+        data: questionIds.map((questionId, orderIndex) => ({
+          examPaperId: paperId,
+          questionId,
+          orderIndex,
+        })),
+      }),
+    ]);
+    return this.getPaper(paperId);
   }
 
   async recordResult(paperId: string, dto: RecordExamResultDto) {

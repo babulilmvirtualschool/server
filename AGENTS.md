@@ -111,7 +111,10 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (12) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008155616_daily_diary`.
+- Migrations (13) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008164554_exam_question_bank`.
+- Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
+  `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
+  `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
 - `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
   parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
@@ -176,9 +179,15 @@ S: `POST quizzes/:id/attempts` (start or resume; server-side shuffles; `deadline
 `POST attempts/:attemptId/submit` (`{answers?}`). Objective questions auto-graded (negative marking supported); any
 SHORT/LONG answer leaves status SUBMITTED until manual grade. `totalMarks` is recomputed on question changes.
 
-**exams** — A: `POST exams`, `PATCH|DELETE exams/:id`, `POST exams/:id/papers`, `POST exam-papers/:paperId/publish`;
+**exams** — A: `POST exams`, `PATCH|DELETE exams/:id`, `POST exams/:id/papers` (course must be in the exam's year; 409 if the subject
+already has a paper), `GET|PATCH|DELETE exam-papers/:paperId` (GET = generated paper with ordered bank questions + `questionMarks`;
+DELETE refused with 409 once results exist), `PUT exam-papers/:paperId/questions` (`{questionIds}` in order, same subject only),
+`POST exam-papers/:paperId/publish`;
 A,T: `POST exam-papers/:paperId/results`, `POST exam-papers/:paperId/results/bulk` (array), `GET exam-papers/:paperId/results`;
-auth: `GET exams?academicYearId`, `GET exams/:id` (with papers); S: `GET me/results` (published only).
+auth: `GET exams?academicYearId`, `GET exams/:id` (papers ordered by `scheduledAt`, with `_count.questions`); S: `GET me/results` (published only).
+
+**question-bank** (A, class-level) — `GET question-bank?subjectId&type&search` (with `_count.paperQuestions`), `POST question-bank`,
+`PATCH question-bank/:id` (subject fixed), `DELETE question-bank/:id` (409 while used on a paper). Validation errors return `fields`.
 
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,

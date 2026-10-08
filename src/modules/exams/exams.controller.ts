@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
@@ -20,7 +21,9 @@ import {
   CreateExamDto,
   CreateExamPaperDto,
   RecordExamResultDto,
+  SetPaperQuestionsDto,
   UpdateExamDto,
+  UpdateExamPaperDto,
 } from './dto/exam.dto';
 
 @ApiTags('exams')
@@ -61,6 +64,36 @@ export class ExamsController {
   @Post('exams/:id/papers')
   createPaper(@Param('id') id: string, @Body() dto: CreateExamPaperDto) {
     return this.svc.createPaper(id, dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('exam-papers/:paperId')
+  getPaper(@Param('paperId') paperId: string) {
+    return this.svc.getPaper(paperId);
+  }
+
+  @Roles(Role.ADMIN)
+  @Patch('exam-papers/:paperId')
+  updatePaper(
+    @Param('paperId') paperId: string,
+    @Body() dto: UpdateExamPaperDto,
+  ) {
+    return this.svc.updatePaper(paperId, dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Delete('exam-papers/:paperId')
+  deletePaper(@Param('paperId') paperId: string) {
+    return this.svc.deletePaper(paperId);
+  }
+
+  @Roles(Role.ADMIN)
+  @Put('exam-papers/:paperId/questions')
+  setPaperQuestions(
+    @Param('paperId') paperId: string,
+    @Body() dto: SetPaperQuestionsDto,
+  ) {
+    return this.svc.setPaperQuestions(paperId, dto.questionIds);
   }
 
   @Roles(Role.ADMIN, Role.TEACHER)

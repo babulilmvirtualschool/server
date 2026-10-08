@@ -229,7 +229,8 @@ model Subject {
   code      String?  @unique // e.g. "PHY"
   createdAt DateTime @default(now())
 
-  courses Course[]
+  courses       Course[]
+  bankQuestions BankQuestion[]
 }
 
 model Course {
@@ -673,6 +674,7 @@ model ExamPaper {
   maxMarks     Int
   venue        String?
   results      ExamResult[]
+  questions    ExamPaperQuestion[]
 
   @@unique([examId, courseId])
 }
@@ -1119,4 +1121,43 @@ model DiaryEntry {
 
   @@unique([courseId, date])
   @@index([date])
+}
+
+// ---------- Exam question bank & paper generator ----------
+// Separate from quiz QuestionType on purpose: the bank only supports these two types.
+enum BankQuestionType {
+  MCQ
+  FILL_BLANK
+}
+
+// Reusable question for a subject. MCQ: `options` = [{ text, isCorrect }] with exactly one correct.
+// FILL_BLANK: `text` contains the blank (e.g. "____") and `answer` holds the expected answer.
+model BankQuestion {
+  id        String           @id @default(cuid())
+  subjectId String
+  subject   Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  type      BankQuestionType
+  text      String
+  options   Json?
+  answer    String?
+  marks     Float            @default(1)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  paperQuestions ExamPaperQuestion[]
+
+  @@index([subjectId, type])
+}
+
+// A question selected from the bank for an exam paper (the generated paper), in order.
+model ExamPaperQuestion {
+  id          String       @id @default(cuid())
+  examPaperId String
+  examPaper   ExamPaper    @relation(fields: [examPaperId], references: [id], onDelete: Cascade)
+  questionId  String
+  question    BankQuestion @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  orderIndex  Int
+
+  @@unique([examPaperId, questionId])
+  @@index([questionId])
 }

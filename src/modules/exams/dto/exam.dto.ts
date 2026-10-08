@@ -1,6 +1,13 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  OmitType,
+  PartialType,
+} from '@nestjs/swagger';
 import { ExamType } from '@prisma/client';
 import {
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -68,6 +75,20 @@ export class CreateExamPaperDto {
   @IsOptional()
   @IsString()
   venue?: string;
+}
+
+/** Re-schedule a paper on the date sheet (subject/course cannot change). */
+export class UpdateExamPaperDto extends PartialType(
+  OmitType(CreateExamPaperDto, ['courseId', 'quizId'] as const),
+) {}
+
+/** Paper generator: the ordered list of question-bank question ids that make up the paper. */
+export class SetPaperQuestionsDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  questionIds!: string[];
 }
 
 export class RecordExamResultDto {

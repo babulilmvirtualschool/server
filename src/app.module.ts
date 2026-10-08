@@ -23,6 +23,7 @@ import { ApplicationsModule } from './modules/applications/applications.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
 import { DiaryModule } from './modules/diary/diary.module';
+import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { DiaryModule } from './modules/diary/diary.module';
     LeaveModule,
     TimetableModule,
     DiaryModule,
+    QuestionBankModule,
   ],
 })
 export class AppModule {}
