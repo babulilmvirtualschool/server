@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { MediaPurpose, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
@@ -119,6 +119,59 @@ export class AssignmentsService {
       throw new BadRequestException('Late submissions are not allowed');
     }
 
+    const existing = await this.prisma.assignmentSubmission.findUnique({
+      where: { assignmentId_studentId: { assignmentId, studentId: student.id } },
+      include: { grade: true },
+    });
+    if (existing?.grade) {
+      throw new BadRequestException(
+        'This submission has already been graded and can no longer be changed',
+      );
+    }
+
+    // Files must be the student's own finished uploads for assignment submissions;
+    // name/size/type are taken from the upload record, not from the request.
+    let attachments: Prisma.InputJsonValue | undefined;
+    if (dto.attachments !== undefined) {
+      const keys = dto.attachments.map((a) => a.key);
+      if (new Set(keys).size !== keys.length) {
+        throw new BadRequestException('The same file is attached twice');
+      }
+      const assets = await this.prisma.mediaAsset.findMany({
+        where: { key: { in: keys } },
+      });
+      const valid = (key: string) => {
+        const m = assets.find((x) => x.key === key);
+        return (
+          !!m &&
+          m.uploaderId === user.id &&
+          m.finalized &&
+          m.purpose === MediaPurpose.ASSIGNMENT_SUBMISSION
+        );
+      };
+      if (!keys.every(valid)) {
+        throw new BadRequestException(
+          'One or more files were not uploaded by you for this submission',
+        );
+      }
+      attachments = dto.attachments.map((a) => {
+        const m = assets.find((x) => x.key === a.key)!;
+        return { key: a.key, name: m.originalName ?? a.name, size: m.size, mime: m.mimeType };
+      });
+    }
+
+    const textAnswer =
+      dto.textAnswer !== undefined
+        ? dto.textAnswer.trim() || null
+        : (existing?.textAnswer ?? null);
+    const finalFiles =
+      attachments !== undefined
+        ? (attachments as unknown[])
+        : ((existing?.attachments as unknown[] | null) ?? []);
+    if (!textAnswer && !finalFiles.length) {
+      throw new BadRequestException('Write an answer or attach at least one file');
+    }
+
     return this.prisma.assignmentSubmission.upsert({
       where: {
         assignmentId_studentId: {
@@ -127,22 +180,16 @@ export class AssignmentsService {
         },
       },
       update: {
-        textAnswer: dto.textAnswer,
-        attachments:
-          dto.attachments === undefined
-            ? undefined
-            : (dto.attachments as unknown as Prisma.InputJsonValue),
+        textAnswer,
+        ...(attachments !== undefined ? { attachments } : {}),
         submittedAt: now,
         isLate,
       },
       create: {
         assignmentId,
         studentId: student.id,
-        textAnswer: dto.textAnswer,
-        attachments:
-          dto.attachments === undefined
-            ? undefined
-            : (dto.attachments as unknown as Prisma.InputJsonValue),
+        textAnswer,
+        ...(attachments !== undefined ? { attachments } : {}),
         isLate,
       },
     });

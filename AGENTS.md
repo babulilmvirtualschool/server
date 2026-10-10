@@ -170,7 +170,9 @@ S: `POST live-classes/:id/join` → `{meetingLink}` only inside `[start − join
 
 **assignments** — A,T(owner): `POST courses/:courseId/assignments`, `PATCH|DELETE assignments/:id`, `GET assignments/:id/submissions`,
 `PATCH submissions/:submissionId/grade` (`{marksObtained:int ≤ maxMarks, feedback?}`); auth: `GET courses/:courseId/assignments`, `GET assignments/:id`;
-S: `POST assignments/:id/submissions` (`{textAnswer?, attachments?}`, upsert; late blocked if `allowLate=false`), `GET assignments/:id/my-submission`.
+S: `POST assignments/:id/submissions` (`{textAnswer?, attachments?}`, upsert; late blocked if `allowLate=false`; attachments must be the
+student's own finalized `ASSIGNMENT_SUBMISSION` uploads (max 10, no duplicates) and their name/size/mime are taken from `MediaAsset`;
+needs text or ≥1 file; refused once graded), `GET assignments/:id/my-submission`.
 
 **quizzes** — A,T(owner): `POST courses/:courseId/quizzes`, `PATCH quizzes/:id`, `POST quizzes/:id/publish`, `DELETE quizzes/:id`,
 `POST quizzes/:id/questions`, `PATCH|DELETE questions/:qid`, `GET quizzes/:id/attempts`, `GET attempts/:attemptId/review`,
