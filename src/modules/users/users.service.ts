@@ -23,7 +23,7 @@ import {
   ParentChildLinkDto,
 } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ListUsersDto } from './dto/list-users.dto';
+import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
 import {
@@ -134,10 +134,21 @@ export class UsersService {
     };
   }
 
-  async list(query: ListUsersDto) {
-    const { skip, take, page, limit } = getSkipTake(query);
-    const where: Prisma.UserWhereInput = {
+  /** Filters shared by the users list and the students export. */
+  private buildListWhere(query: ListUsersDto): Prisma.UserWhereInput {
+    const today = new Date();
+    const yearsAgo = (n: number) =>
+      new Date(Date.UTC(today.getUTCFullYear() - n, today.getUTCMonth(), today.getUTCDate()));
+    const dob: Prisma.DateTimeNullableFilter = {};
+    // Age N means born on or before (today − N years) and after (today − (N+1) years).
+    if (query.minAge !== undefined) dob.lte = yearsAgo(query.minAge);
+    if (query.maxAge !== undefined) dob.gt = yearsAgo(query.maxAge + 1);
+    return {
       ...(query.role ? { role: query.role } : {}),
+      ...(query.gender ? { gender: query.gender } : {}),
+      ...(query.minAge !== undefined || query.maxAge !== undefined ? { dateOfBirth: dob } : {}),
+      ...(query.hasPhoto === 'true' ? { avatarKey: { not: null } } : {}),
+      ...(query.hasPhoto === 'false' ? { avatarKey: null } : {}),
       ...(query.isActive !== undefined
         ? { isActive: query.isActive === 'true' }
         : {}),
@@ -157,21 +168,133 @@ export class UsersService {
                   },
                 },
               },
+              {
+                studentProfile: {
+                  admissionNo: { contains: query.search, mode: 'insensitive' },
+                },
+              },
             ],
           }
         : {}),
     };
+  }
+
+  private listOrderBy(sort?: ListUsersDto['sort']): Prisma.UserOrderByWithRelationInput[] {
+    switch (sort) {
+      case 'oldest':
+        return [{ createdAt: 'asc' }];
+      case 'name_asc':
+        return [{ firstName: 'asc' }, { lastName: 'asc' }];
+      case 'name_desc':
+        return [{ firstName: 'desc' }, { lastName: 'desc' }];
+      default:
+        return [{ createdAt: 'desc' }];
+    }
+  }
+
+  async list(query: ListUsersDto) {
+    const { skip, take, page, limit } = getSkipTake(query);
+    const where = this.buildListWhere(query);
     const [total, data] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: this.listOrderBy(query.sort),
         select: this.listUserSelect(),
       }),
     ]);
     return paginate(data, total, page, limit);
+  }
+
+  /**
+   * All students matching the list filters/sort (max 5000) with class, roll number, contacts and parents —
+   * feeds the Student data / Contacts / Family list downloads and the Strength report.
+   */
+  async exportStudents(query: ExportStudentsDto) {
+    const where = this.buildListWhere({ ...query, role: Role.STUDENT });
+    const users = await this.prisma.user.findMany({
+      where,
+      orderBy: this.listOrderBy(query.sort),
+      take: 5000,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        gender: true,
+        dateOfBirth: true,
+        isActive: true,
+        avatarKey: true,
+        createdAt: true,
+        studentProfile: {
+          select: {
+            id: true,
+            admissionNo: true,
+            address: true,
+            enrollments: {
+              where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
+              take: 1,
+              select: {
+                rollNumber: true,
+                section: { select: { id: true, name: true, class: { select: { name: true, level: true } } } },
+              },
+            },
+            parents: {
+              select: {
+                relation: true,
+                parent: {
+                  select: {
+                    id: true,
+                    cnic: true,
+                    user: { select: { firstName: true, lastName: true, phone: true, email: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const parentOf = (u: (typeof users)[number], relation: string) => {
+      const link = u.studentProfile?.parents.find((p) => p.relation === relation);
+      if (!link) return null;
+      const pu = link.parent.user;
+      return {
+        id: link.parent.id,
+        name: [pu.firstName, pu.lastName].filter((x) => x && x !== '.').join(' '),
+        phone: pu.phone,
+        email: pu.email,
+        cnic: link.parent.cnic,
+      };
+    };
+    return users.map((u) => {
+      const e = u.studentProfile?.enrollments[0];
+      return {
+        userId: u.id,
+        studentId: u.studentProfile?.id ?? null,
+        admissionNo: u.studentProfile?.admissionNo ?? null,
+        name: `${u.firstName} ${u.lastName}`.trim(),
+        gender: u.gender,
+        dateOfBirth: u.dateOfBirth,
+        phone: u.phone,
+        email: u.email,
+        isActive: u.isActive,
+        hasPhoto: !!u.avatarKey,
+        city: u.studentProfile?.address?.split('\n')[0] ?? null,
+        enrolledAt: u.createdAt,
+        sectionId: e?.section.id ?? null,
+        className: e?.section.class.name ?? null,
+        classLevel: e?.section.class.level ?? null,
+        sectionName: e?.section.name ?? null,
+        rollNumber: e?.rollNumber ?? null,
+        father: parentOf(u, 'FATHER'),
+        mother: parentOf(u, 'MOTHER'),
+        guardian: parentOf(u, 'GUARDIAN'),
+      };
+    });
   }
 
   async findById(id: string) {

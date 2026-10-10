@@ -21,7 +21,7 @@ import {
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
 import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ListUsersDto } from './dto/list-users.dto';
+import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -34,6 +34,12 @@ export class UsersController {
   @Get()
   list(@Query() q: ListUsersDto) {
     return this.users.list(q);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('students/export')
+  exportStudents(@Query() query: ExportStudentsDto) {
+    return this.users.exportStudents(query);
   }
 
   @Roles(Role.ADMIN)

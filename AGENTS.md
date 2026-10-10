@@ -136,7 +136,10 @@ Patterns to copy:
 **auth** — public: `POST auth/login`, `auth/refresh`, `auth/logout`, `auth/forgot-password`, `auth/reset-password`;
 auth: `POST auth/change-password`, `GET auth/me`, `PATCH auth/me`.
 
-**users** (A) — `GET users?role&isActive&search&page&limit` (paginated) · `GET users/teachers/create-suggestions?firstName&lastName`
+**users** (A) — `GET users?role&isActive&search&page&limit&sort&gender&minAge&maxAge&hasPhoto` (paginated; `sort` = newest|oldest|name_asc|name_desc,
+age from date of birth, `hasPhoto` = true|false on `avatarKey`; search also matches `admissionNo`)
+· `GET users/students/export` (same filters, no paging, max 5000: admission no., class/section/roll, contacts, father/mother/guardian
+with phone + CNIC — feeds the All Students downloads and the Strength report) · `GET users/teachers/create-suggestions?firstName&lastName`
 · `GET users/:id` (adds `parentLinks` for students / `childLinks` for parents) · `GET users/:id/delete-impact`
 · `POST users/admins|teachers|students|parents` · `POST users/students/with-parents` (student + father + mother accounts, linked;
 optional `sectionId` + `rollNumber` enrolls the student in the same transaction — both or neither, roll must be free → 409 `fields`).
