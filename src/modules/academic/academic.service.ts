@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateAcademicYearDto,
@@ -226,15 +231,83 @@ export class AcademicService {
   }
 
   // -------- Enrollments --------
-  createEnrollment(dto: CreateEnrollmentDto) {
-    return this.prisma.studentEnrollment.create({ data: dto });
+  /** Enrollment is what gives a student access to their section's courses and content. */
+  async createEnrollment(dto: CreateEnrollmentDto) {
+    await this.assertSectionInYear(dto.sectionId, dto.academicYearId);
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { id: dto.studentId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    const existing = await this.prisma.studentEnrollment.findUnique({
+      where: {
+        studentId_academicYearId: {
+          studentId: dto.studentId,
+          academicYearId: dto.academicYearId,
+        },
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'This student is already enrolled for this academic year. Change the existing enrollment instead.',
+      );
+    }
+    const rollNumber = dto.rollNumber.trim();
+    await this.assertRollNumberFree(dto.sectionId, rollNumber);
+    return this.prisma.studentEnrollment.create({
+      data: { ...dto, rollNumber },
+      include: { section: { include: { class: true } }, academicYear: true },
+    });
   }
 
-  listEnrollments(sectionId?: string, academicYearId?: string) {
+  private async assertSectionInYear(sectionId: string, academicYearId: string) {
+    const section = await this.prisma.section.findUnique({
+      where: { id: sectionId },
+      include: { class: true },
+    });
+    if (!section) throw new NotFoundException('Section not found');
+    if (section.class.academicYearId !== academicYearId) {
+      throw new BadRequestException(
+        'This class/section belongs to a different academic year',
+      );
+    }
+  }
+
+  private async assertRollNumberFree(
+    sectionId: string,
+    rollNumber: string,
+    excludeEnrollmentId?: string,
+  ) {
+    if (!rollNumber) {
+      throw new BadRequestException({
+        message: 'Roll number is required',
+        fields: { rollNumber: 'Required' },
+      });
+    }
+    const taken = await this.prisma.studentEnrollment.findFirst({
+      where: {
+        sectionId,
+        rollNumber,
+        ...(excludeEnrollmentId ? { id: { not: excludeEnrollmentId } } : {}),
+      },
+    });
+    if (taken) {
+      throw new ConflictException({
+        message: `Roll number ${rollNumber} is already used in this section`,
+        fields: { rollNumber: 'Already used in this section' },
+      });
+    }
+  }
+
+  listEnrollments(
+    sectionId?: string,
+    academicYearId?: string,
+    studentId?: string,
+  ) {
     return this.prisma.studentEnrollment.findMany({
       where: {
         ...(sectionId ? { sectionId } : {}),
         ...(academicYearId ? { academicYearId } : {}),
+        ...(studentId ? { studentId } : {}),
       },
       include: {
         student: { include: { user: { select: publicUserSelect } } },
@@ -244,8 +317,27 @@ export class AcademicService {
     });
   }
 
-  updateEnrollment(id: string, dto: UpdateEnrollmentDto) {
-    return this.prisma.studentEnrollment.update({ where: { id }, data: dto });
+  async updateEnrollment(id: string, dto: UpdateEnrollmentDto) {
+    const existing = await this.prisma.studentEnrollment.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException('Enrollment not found');
+    const sectionId = dto.sectionId ?? existing.sectionId;
+    const rollNumber = (dto.rollNumber ?? existing.rollNumber).trim();
+    if (dto.sectionId) {
+      await this.assertSectionInYear(dto.sectionId, existing.academicYearId);
+    }
+    if (dto.sectionId !== undefined || dto.rollNumber !== undefined) {
+      await this.assertRollNumberFree(sectionId, rollNumber, id);
+    }
+    return this.prisma.studentEnrollment.update({
+      where: { id },
+      data: {
+        ...dto,
+        ...(dto.rollNumber !== undefined ? { rollNumber } : {}),
+      },
+      include: { section: { include: { class: true } }, academicYear: true },
+    });
   }
 
   deleteEnrollment(id: string) {

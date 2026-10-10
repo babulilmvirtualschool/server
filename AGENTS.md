@@ -154,7 +154,10 @@ teacher: employee code `TCH00001`…). Re-approving an already provisioned appli
 **academic** — reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
 · `GET me/courses?academicYearId` (T: taught courses, S: enrolled sections' courses, others `[]`)
-· `enrollments`: POST/PATCH/DELETE A, `GET enrollments?sectionId&academicYearId` A,T. All entities: POST, PATCH `:id`, DELETE `:id`.
+· `enrollments`: POST/PATCH/DELETE A, `GET enrollments?sectionId&academicYearId&studentId` A,T. POST/PATCH check the section belongs
+  to the academic year (400), one enrollment per student per year (409) and a free roll number in the section (409 with
+  `fields.rollNumber`). **Students only see courses/content of sections they are enrolled in** — admission approval and
+  "Add student" do not enroll; the admin does it on the student page. All entities: POST, PATCH `:id`, DELETE `:id`.
 
 **content** — `GET courses/:courseId/lessons` (tree: lessons→topics→contents) and `GET courses/:courseId/syllabus` (auth);
 A,T(owner): `POST courses/:courseId/lessons`, `PATCH|DELETE lessons/:id`, `POST lessons/:lessonId/topics`, `PATCH|DELETE topics/:id`,

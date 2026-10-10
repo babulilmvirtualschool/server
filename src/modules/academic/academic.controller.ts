@@ -190,8 +190,9 @@ export class AcademicController {
   listEnrollments(
     @Query('sectionId') sectionId?: string,
     @Query('academicYearId') academicYearId?: string,
+    @Query('studentId') studentId?: string,
   ) {
-    return this.svc.listEnrollments(sectionId, academicYearId);
+    return this.svc.listEnrollments(sectionId, academicYearId, studentId);
   }
   @Roles(Role.ADMIN)
   @Patch('enrollments/:id')
