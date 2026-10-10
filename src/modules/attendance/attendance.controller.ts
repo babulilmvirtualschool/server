@@ -16,6 +16,10 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { AttendanceService } from './attendance.service';
 import { AttendanceReportQueryDto } from './dto/attendance-report.dto';
+import {
+  AttendanceRecordsQueryDto,
+  BulkStaffAttendanceDto,
+} from './dto/attendance-admin.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
 import {
   ListTeacherAttendanceDto,
@@ -89,6 +93,18 @@ export class AttendanceController {
   @Get('teacher-attendance')
   listTeacherAttendance(@Query() q: ListTeacherAttendanceDto) {
     return this.svc.listTeacherAttendanceAdmin(q);
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('teacher-attendance/bulk')
+  bulkStaff(@CurrentUser() user: AuthUser, @Body() dto: BulkStaffAttendanceDto) {
+    return this.svc.bulkMarkStaff(user, dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('attendance/records')
+  records(@Query() q: AttendanceRecordsQueryDto) {
+    return this.svc.recordsForReport(q);
   }
 
   @Roles(Role.ADMIN)

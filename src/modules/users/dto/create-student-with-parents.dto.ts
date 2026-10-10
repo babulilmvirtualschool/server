@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
   MinLength,
   ValidateIf,
 } from 'class-validator';
@@ -149,4 +150,15 @@ export class CreateStudentWithParentsDto {
   @IsString()
   @MinLength(8)
   motherPassword!: string;
+
+  @ApiPropertyOptional({ description: 'Enroll into this section (current classes); requires rollNumber' })
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+
+  @ApiPropertyOptional({ description: 'Roll number in the section; requires sectionId' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  rollNumber?: string;
 }

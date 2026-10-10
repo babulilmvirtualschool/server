@@ -138,7 +138,10 @@ auth: `POST auth/change-password`, `GET auth/me`, `PATCH auth/me`.
 
 **users** (A) — `GET users?role&isActive&search&page&limit` (paginated) · `GET users/teachers/create-suggestions?firstName&lastName`
 · `GET users/:id` (adds `parentLinks` for students / `childLinks` for parents) · `GET users/:id/delete-impact`
-· `POST users/admins|teachers|students|parents` · `POST users/students/with-parents` (student + father + mother accounts, linked)
+· `POST users/admins|teachers|students|parents` · `POST users/students/with-parents` (student + father + mother accounts, linked;
+optional `sectionId` + `rollNumber` enrolls the student in the same transaction — both or neither, roll must be free → 409 `fields`).
+`GET users?role=STUDENT` rows also carry `avatarKey`, `studentProfile.id`, father name (`parents[0]`) and the current-year ACTIVE
+enrollment (class/section/roll) for the All Students table.
 · `POST users/parents/:userId/children` · `DELETE users/parents/:userId/children/:linkId` · `PATCH users/:id`
 · `PATCH users/:id/password` · `POST users/:id/activate|deactivate` · `DELETE users/:id` (blocked if impact has blockers → 409).
 "Staff" in the web UI = users with role ADMIN.
@@ -154,6 +157,8 @@ teacher: employee code `TCH00001`…). Re-approving an already provisioned appli
 **academic** — reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
 · `GET me/courses?academicYearId` (T: taught courses, S: enrolled sections' courses, others `[]`)
+· `POST enrollments/shift` A (`{studentIds: StudentProfile ids, sectionId}`; moves their enrollment in that section's year; all-or-nothing:
+  400 if someone is not enrolled that year, 409 naming roll-number clashes) → `{moved, alreadyThere}`.
 · `enrollments`: POST/PATCH/DELETE A, `GET enrollments?sectionId&academicYearId&studentId` A,T. POST/PATCH check the section belongs
   to the academic year (400), one enrollment per student per year (409) and a free roll number in the section (409 with
   `fields.rollNumber`). **Students only see courses/content of sections they are enrolled in** — admission approval and
@@ -199,7 +204,10 @@ or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET 
 `GET attendance/reports?courseId&date`, `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
 S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
-A: `GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
+A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
+`GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
+class label and subject; max 5000; feeds the admin combined report),
+`GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
 (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING).
 
 **leave** — T: `POST|GET me/teacher-leaves`, `GET me/class-student-leaves?status&page` (leave of students actively enrolled in sections the

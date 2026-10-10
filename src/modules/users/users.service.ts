@@ -86,9 +86,29 @@ export class UsersService {
       isActive: true,
       lastLoginAt: true,
       createdAt: true,
+      avatarKey: true,
       studentProfile: {
         select: {
+          id: true,
           admissionNo: true,
+          parents: {
+            where: { relation: 'FATHER' },
+            take: 1,
+            select: {
+              parent: {
+                select: { user: { select: { firstName: true, lastName: true } } },
+              },
+            },
+          },
+          enrollments: {
+            where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
+            take: 1,
+            select: {
+              id: true,
+              rollNumber: true,
+              section: { select: { id: true, name: true, class: { select: { name: true } } } },
+            },
+          },
         },
       },
       parentProfile: {
@@ -1084,6 +1104,33 @@ export class UsersService {
 
     await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
 
+    // Optional: admit straight into a class/section with a roll number.
+    const rollNumber = dto.rollNumber?.trim() || '';
+    let enrollTo: { sectionId: string; academicYearId: string } | null = null;
+    if (dto.sectionId || rollNumber) {
+      if (!dto.sectionId || !rollNumber) {
+        throw new BadRequestException({
+          message: 'Choose a class/section and enter a roll number (or leave both empty)',
+          fields: dto.sectionId ? { rollNumber: 'Required with a class/section' } : { sectionId: 'Required with a roll number' },
+        });
+      }
+      const section = await this.prisma.section.findUnique({
+        where: { id: dto.sectionId },
+        include: { class: true },
+      });
+      if (!section) throw new BadRequestException({ message: 'Class/section not found', fields: { sectionId: 'Not found' } });
+      const taken = await this.prisma.studentEnrollment.findFirst({
+        where: { sectionId: section.id, rollNumber },
+      });
+      if (taken) {
+        throw new ConflictException({
+          message: `Roll number ${rollNumber} is already used in this section`,
+          fields: { rollNumber: 'Already used in this section' },
+        });
+      }
+      enrollTo = { sectionId: section.id, academicYearId: section.class.academicYearId };
+    }
+
     const addressExtras = [
       `Class: ${dto.gradeLevel.trim()}`,
       `Curriculum: ${dto.curriculum.trim()}`,
@@ -1112,7 +1159,7 @@ export class UsersService {
 
     const { studentUserId } = await this.prisma.$transaction(
       async (tx) => {
-        return this.provisionFamilyAccountsInTransaction(tx, {
+        const created = await this.provisionFamilyAccountsInTransaction(tx, {
           studentFirstName: dto.firstName.trim(),
           studentLastName: dto.lastName.trim(),
           studentGender: dto.gender ?? null,
@@ -1135,6 +1182,15 @@ export class UsersService {
           motherPasswordHash,
           parentAddressLine: city,
         });
+        if (enrollTo) {
+          const profile = await tx.studentProfile.findUniqueOrThrow({
+            where: { userId: created.studentUserId },
+          });
+          await tx.studentEnrollment.create({
+            data: { studentId: profile.id, ...enrollTo, rollNumber },
+          });
+        }
+        return created;
       },
       { timeout: 60_000, maxWait: 10_000 },
     );

@@ -11,6 +11,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import {
+  AttendanceRecordsQueryDto,
+  BulkStaffAttendanceDto,
+} from './dto/attendance-admin.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
 import {
   ListTeacherAttendanceDto,
@@ -435,6 +439,96 @@ export class AttendanceService {
       },
     });
     return { total: records.length, counts: this.countByStatus(records), records };
+  }
+
+  /** Admin — mark many staff for one date; admin-recorded days are approved immediately. */
+  async bulkMarkStaff(admin: AuthUser, dto: BulkStaffAttendanceDto) {
+    const ids = dto.entries.map((e) => e.teacherId);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException('Each teacher can only appear once');
+    }
+    const found = await this.prisma.teacherProfile.count({ where: { id: { in: ids } } });
+    if (found !== ids.length) throw new BadRequestException('One or more teachers were not found');
+    const date = parseDateOnly(dto.date);
+    const now = new Date();
+    return this.prisma.$transaction(
+      dto.entries.map((e) => {
+        const data = {
+          status: e.status,
+          remarks: e.remarks?.trim() || null,
+          recordedById: admin.id,
+          approvalStatus: AttendanceApprovalStatus.APPROVED,
+          reviewedById: admin.id,
+          reviewedAt: now,
+          reviewNote: null,
+        };
+        return this.prisma.teacherAttendanceRecord.upsert({
+          where: { teacherId_date: { teacherId: e.teacherId, date } },
+          create: { teacherId: e.teacherId, date, ...data },
+          update: data,
+        });
+      }),
+    );
+  }
+
+  /** Admin — student attendance records for the combined report (max 5000, oldest first). */
+  async recordsForReport(q: AttendanceRecordsQueryDto) {
+    const where = {
+      date: { gte: parseDateOnly(q.from), lte: parseDateOnly(q.to) },
+      ...(q.studentId ? { studentId: q.studentId } : {}),
+      ...(q.courseId ? { courseId: q.courseId } : {}),
+      ...(q.kind === 'DAILY' ? { courseId: null } : {}),
+      ...(q.kind === 'PERIOD' ? { courseId: { not: null } } : {}),
+      ...(q.sectionId
+        ? { OR: [{ sectionId: q.sectionId }, { course: { sectionId: q.sectionId } }] }
+        : {}),
+    };
+    const records = await this.prisma.attendanceRecord.findMany({
+      where,
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      take: 5000,
+      include: {
+        student: {
+          select: {
+            id: true,
+            admissionNo: true,
+            user: { select: { firstName: true, lastName: true } },
+            enrollments: { select: { sectionId: true, rollNumber: true } },
+          },
+        },
+        course: {
+          select: {
+            id: true,
+            sectionId: true,
+            subject: { select: { name: true } },
+            section: { select: { id: true, name: true, class: { select: { name: true } } } },
+          },
+        },
+        section: { select: { id: true, name: true, class: { select: { name: true } } } },
+      },
+    });
+    return records.map((r) => {
+      const section = r.section ?? r.course?.section ?? null;
+      const rollNumber =
+        r.student.enrollments.find((e) => e.sectionId === section?.id)?.rollNumber ?? null;
+      return {
+        id: r.id,
+        date: r.date,
+        status: r.status,
+        remarks: r.remarks,
+        kind: r.courseId ? 'PERIOD' : 'DAILY',
+        student: {
+          id: r.student.id,
+          admissionNo: r.student.admissionNo,
+          name: `${r.student.user.firstName} ${r.student.user.lastName}`.trim(),
+          rollNumber,
+        },
+        section: section
+          ? { id: section.id, label: `${section.class.name} · ${section.name}` }
+          : null,
+        course: r.course ? { id: r.course.id, subject: r.course.subject.name } : null,
+      };
+    });
   }
 
   /** Admin — approve or reject a pending teacher attendance submission. */

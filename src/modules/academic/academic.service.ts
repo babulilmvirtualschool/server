@@ -15,6 +15,7 @@ import { CreateSubjectDto, UpdateSubjectDto } from './dto/subject.dto';
 import { CreateCourseDto, UpdateCourseDto } from './dto/course.dto';
 import {
   CreateEnrollmentDto,
+  ShiftEnrollmentsDto,
   UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
@@ -315,6 +316,50 @@ export class AcademicService {
       },
       orderBy: { rollNumber: 'asc' },
     });
+  }
+
+  /** Bulk shift: all-or-nothing; refused if any student has no enrollment in that year or a roll number clashes. */
+  async shiftEnrollments(dto: ShiftEnrollmentsDto) {
+    const section = await this.prisma.section.findUnique({
+      where: { id: dto.sectionId },
+      include: { class: true },
+    });
+    if (!section) throw new NotFoundException('Section not found');
+    const yearId = section.class.academicYearId;
+    const enrollments = await this.prisma.studentEnrollment.findMany({
+      where: { studentId: { in: dto.studentIds }, academicYearId: yearId },
+      include: { student: { include: { user: { select: { firstName: true, lastName: true } } } } },
+    });
+    const name = (e: (typeof enrollments)[number]) =>
+      `${e.student.user.firstName} ${e.student.user.lastName}`.trim();
+    const missing = dto.studentIds.filter((id) => !enrollments.some((e) => e.studentId === id));
+    if (missing.length) {
+      throw new BadRequestException(
+        `${missing.length} selected student(s) are not enrolled in any class for this academic year. Enroll them first.`,
+      );
+    }
+    const moving = enrollments.filter((e) => e.sectionId !== section.id);
+    const stayingRolls = await this.prisma.studentEnrollment.findMany({
+      where: { sectionId: section.id, id: { notIn: moving.map((e) => e.id) } },
+      select: { rollNumber: true },
+    });
+    const used = new Set(stayingRolls.map((r) => r.rollNumber));
+    const clashes: string[] = [];
+    for (const e of moving) {
+      if (used.has(e.rollNumber)) clashes.push(`${name(e)} (roll ${e.rollNumber})`);
+      used.add(e.rollNumber);
+    }
+    if (clashes.length) {
+      throw new ConflictException(
+        `Roll number already used in the target section: ${clashes.join(', ')}. Change their roll numbers first.`,
+      );
+    }
+    await this.prisma.$transaction(
+      moving.map((e) =>
+        this.prisma.studentEnrollment.update({ where: { id: e.id }, data: { sectionId: section.id } }),
+      ),
+    );
+    return { moved: moving.length, alreadyThere: enrollments.length - moving.length };
   }
 
   async updateEnrollment(id: string, dto: UpdateEnrollmentDto) {
