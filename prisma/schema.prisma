@@ -109,6 +109,12 @@ model TeacherProfile {
   joiningDate      DateTime?
   bio              String?
   cnic             String?
+  city               String?
+  teachingExperience String?
+  currentWorkplace   String?
+  /// R2 object key of the CV (admin upload, or copied from the approved faculty application).
+  cvKey              String?
+  cvOriginalName     String?
 
   coursesTaught    Course[]            @relation("CourseTeacher")
   homeroomSections Section[]           @relation("ClassTeacher")

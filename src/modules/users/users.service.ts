@@ -419,6 +419,11 @@ export class UsersService {
             joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : null,
             bio: dto.bio,
             cnic: dto.cnic,
+            city: dto.city,
+            teachingExperience: dto.teachingExperience,
+            currentWorkplace: dto.currentWorkplace,
+            cvKey: dto.cvKey,
+            cvOriginalName: dto.cvKey ? dto.cvOriginalName : undefined,
           },
         },
       },
@@ -1558,14 +1563,6 @@ export class UsersService {
 
     const passwordHash = await this.hashPassword(accounts.teacherPassword.trim());
     const tu = accounts.teacherUsername.trim().toLowerCase();
-    const bioParts = [
-      app.teachingExperience.trim(),
-      app.currentWorkplace
-        ? `Workplace: ${app.currentWorkplace.trim()}`
-        : null,
-    ].filter(Boolean);
-    const bio = bioParts.length ? bioParts.join(' · ') : null;
-
     try {
       await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -1584,7 +1581,11 @@ export class UsersService {
                 specialization: app.subjectExpertise,
                 joiningDate: new Date(),
                 cnic: app.cnic.trim(),
-                bio,
+                city: app.city.trim(),
+                teachingExperience: app.teachingExperience.trim(),
+                currentWorkplace: app.currentWorkplace?.trim() || null,
+                cvKey: app.cvKey,
+                cvOriginalName: app.cvKey ? app.cvOriginalName : null,
               },
             },
           },

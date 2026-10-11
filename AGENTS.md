@@ -141,7 +141,10 @@ age from date of birth, `hasPhoto` = true|false on `avatarKey`; search also matc
 · `GET users/students/export` (same filters, no paging, max 5000: admission no., class/section/roll, contacts, father/mother/guardian
 with phone + CNIC — feeds the All Students downloads and the Strength report) · `GET users/teachers/create-suggestions?firstName&lastName`
 · `GET users/:id` (adds `parentLinks` for students / `childLinks` for parents) · `GET users/:id/delete-impact`
-· `POST users/admins|teachers|students|parents` · `POST users/students/with-parents` (student + father + mother accounts, linked;
+· `POST users/admins|teachers|students|parents` (teachers also take `city`, `teachingExperience`, `currentWorkplace`, `cvKey` +
+`cvOriginalName` — the online faculty-form fields, stored on `TeacherProfile` since migration `20261011104901_teacher_profile_application_fields`;
+approving a faculty application copies them, plus the application CV, instead of writing them into `bio`)
+· `POST users/students/with-parents` (student + father + mother accounts, linked;
 optional `sectionId` + `rollNumber` enrolls the student in the same transaction — both or neither, roll must be free → 409 `fields`).
 `GET users?role=STUDENT` rows also carry `avatarKey`, `studentProfile.id`, father name (`parents[0]`) and the current-year ACTIVE
 enrollment (class/section/roll) for the All Students table.

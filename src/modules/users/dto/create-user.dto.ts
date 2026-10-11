@@ -11,6 +11,7 @@ import {
   IsString,
   MinLength,
   ValidateNested,
+  MaxLength,
 } from 'class-validator';
 
 export class BaseCreateUserDto {
@@ -94,6 +95,36 @@ export class CreateTeacherDto extends BaseCreateUserDto {
   @IsOptional()
   @IsString()
   cnic?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @ApiPropertyOptional({ example: '2-5 Years Online' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  teachingExperience?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  currentWorkplace?: string;
+
+  @ApiPropertyOptional({ description: 'Key returned by POST /media/presign-upload (after finalize)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  cvKey?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  cvOriginalName?: string;
 }
 
 export class CreateStudentDto extends BaseCreateUserDto {
