@@ -124,6 +124,9 @@ export class UsersService {
           employeeCode: true,
           qualification: true,
           specialization: true,
+          teachingExperience: true,
+          city: true,
+          joiningDate: true,
         },
       },
       adminProfile: {
