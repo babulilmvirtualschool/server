@@ -96,6 +96,24 @@ Patterns to copy:
   `common/utils/username.util.ts`, `users/dto/create-student-with-parents.dto.ts`,
   `applications/dto/update-admission-status.dto.ts`, `update-teacher-status.dto.ts` — keep in sync.
 
+## 4b. Online / physical school isolation (`src/common/campus/`, since 2026-10-12)
+
+- `enum Campus { ONLINE PHYSICAL }` column on `User`, `AcademicYear`, `Subject`, `AdmissionApplication`, `TeacherApplication`,
+  `Announcement` (existing rows ONLINE; year/subject names unique per campus). Nobody belongs to both schools.
+- `CampusContextInterceptor` (global) runs every authenticated request inside an AsyncLocalStorage store: the user's own campus,
+  or for a **main admin** (`AdminProfile.allCampuses`) the `X-Campus: ONLINE|PHYSICAL` header (else their own campus).
+- `campus.middleware.ts` (Prisma `$use`, registered in `PrismaService`) filters **every** top-level query — reads, `update`/`delete`
+  by id, counts — on the campus column or through the relation path to it (map `VIA`), and stamps new root rows with the request's
+  campus (a body can't choose the other school). The logged-in user's own User row stays visible. Look-ups by globally unique
+  identifiers (`username`/`email`/`phone`, `employeeCode`, `admissionNo`) stay global so "already taken" checks still work.
+  **Adding a model:** give it a `campus` column (add to `DIRECT`) or add its relation path to `VIA`, or it won't be isolated.
+- No store = unscoped: public routes, login/JwtStrategy, cron, seed, scripts. `runUnscoped(fn)` / `runInCampus(c, fn)` for deliberate
+  cross-school work — always `await` Prisma calls inside (queries are lazy). Public website applications pass `campus` in the body.
+- `$use` is deprecated in Prisma 5 and removed in 6 — when upgrading, port the middleware to a client extension.
+- Admission numbers: serial per school `ON-<year>-0001` / `PH-<year>-0001` (older `ADM-<year>-<hex>` kept).
+  `GET users/campus-totals` (main admin) = per-school + combined counts; `POST users/admins` takes `allCampuses` (main admins only).
+  Migration `20261012103330_campus_online_physical` also made all existing admins main admins.
+
 ## 5. Data model notes (`prisma/schema.prisma`, 14 sections)
 
 - `User` (cuid id; `email`, `username`, `phone` all optional + unique; at least email or username required by
