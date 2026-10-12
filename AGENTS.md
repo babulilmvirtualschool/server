@@ -154,7 +154,11 @@ enrollment (class/section/roll) for the All Students table.
 
 **applications** — public: `POST applications/admissions`, `POST applications/teachers/cv-presign` (pdf/doc/docx ≤10 MB),
 `POST applications/teachers`. A: `GET applications/admissions?status&search&page` · `GET applications/admissions/:id/username-suggestions`
-· `PATCH applications/admissions/:id` (`{status, studentUsername, fatherUsername, motherUsername, student/father/motherPassword, studentEmail?}`)
+· `POST applications/admissions/manual` (Add student → "Pending Enrolled": the online fields + `gender`, `bloodGroup`, `sectionId` + `rollNumber`;
+father/mother names and date of birth required; class/roll validated like Add student; no accounts yet)
+· `PATCH applications/admissions/:id` (`{status, studentUsername, fatherUsername, motherUsername, student/father/motherPassword, studentEmail?}`;
+approval keeps gender/blood group/class-curriculum-shift-guardian lines and, when the application has a class/section + roll, enrolls the
+student in the same transaction — roll taken meanwhile → 409, nothing created; columns added by `20261012074309_admission_application_admin_fields`)
 · `GET applications/teachers?search&page` · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
 · `PATCH applications/teachers/:id` (`{status, teacherUsername, teacherPassword, employeeCode}`). PATCH responses are `{data, meta:{accountsProvisioned}}`.
 Approval provisions accounts in one transaction (admission: student `ADM-<year>-<hex>` + father + mother, father primary;
@@ -167,8 +171,8 @@ teacher: employee code `TCH00001`…). Re-approving an already provisioned appli
   400 if someone is not enrolled that year, 409 naming roll-number clashes) → `{moved, alreadyThere}`.
 · `enrollments`: POST/PATCH/DELETE A, `GET enrollments?sectionId&academicYearId&studentId` A,T. POST/PATCH check the section belongs
   to the academic year (400), one enrollment per student per year (409) and a free roll number in the section (409 with
-  `fields.rollNumber`). **Students only see courses/content of sections they are enrolled in** — admission approval and
-  "Add student" do not enroll; the admin does it on the student page. All entities: POST, PATCH `:id`, DELETE `:id`.
+  `fields.rollNumber`). **Students only see courses/content of sections they are enrolled in** — they get enrolled by
+  Add student / an approved admission when a class/section + roll was given, on the student page, or by "Shift class". All entities: POST, PATCH `:id`, DELETE `:id`.
 
 **content** — `GET courses/:courseId/lessons` (tree: lessons→topics→contents) and `GET courses/:courseId/syllabus` (auth);
 A,T(owner): `POST courses/:courseId/lessons`, `PATCH|DELETE lessons/:id`, `POST lessons/:lessonId/topics`, `PATCH|DELETE topics/:id`,

@@ -1243,46 +1243,14 @@ export class UsersService {
     await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
 
     // Optional: admit straight into a class/section with a roll number.
-    const rollNumber = dto.rollNumber?.trim() || '';
-    let enrollTo: { sectionId: string; academicYearId: string } | null = null;
-    if (dto.sectionId || rollNumber) {
-      if (!dto.sectionId || !rollNumber) {
-        throw new BadRequestException({
-          message: 'Choose a class/section and enter a roll number (or leave both empty)',
-          fields: dto.sectionId ? { rollNumber: 'Required with a class/section' } : { sectionId: 'Required with a roll number' },
-        });
-      }
-      const section = await this.prisma.section.findUnique({
-        where: { id: dto.sectionId },
-        include: { class: true },
-      });
-      if (!section) throw new BadRequestException({ message: 'Class/section not found', fields: { sectionId: 'Not found' } });
-      const taken = await this.prisma.studentEnrollment.findFirst({
-        where: { sectionId: section.id, rollNumber },
-      });
-      if (taken) {
-        throw new ConflictException({
-          message: `Roll number ${rollNumber} is already used in this section`,
-          fields: { rollNumber: 'Already used in this section' },
-        });
-      }
-      enrollTo = { sectionId: section.id, academicYearId: section.class.academicYearId };
-    }
-
-    const addressExtras = [
-      `Class: ${dto.gradeLevel.trim()}`,
-      `Curriculum: ${dto.curriculum.trim()}`,
-      `Shift: ${dto.preferredShift.trim().toLowerCase()} shift`,
-      dto.studentBFormNo?.trim() ? `B-Form: ${dto.studentBFormNo.trim()}` : null,
-      dto.guardianName?.trim()
-        ? `Guardian: ${dto.guardianName.trim()}${dto.guardianRelation?.trim() ? ` (${dto.guardianRelation.trim()})` : ''}${dto.guardianPhone?.trim() ? ` · ${dto.guardianPhone.trim()}` : ''}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const enrollTarget = await this.resolveEnrollmentTarget(dto.sectionId, dto.rollNumber);
+    const rollNumber = enrollTarget?.rollNumber ?? '';
+    const enrollTo = enrollTarget
+      ? { sectionId: enrollTarget.sectionId, academicYearId: enrollTarget.academicYearId }
+      : null;
 
     const city = dto.city.trim();
-    const studentAddress = addressExtras ? `${city}\n\n${addressExtras}` : city;
+    const studentAddress = this.studentAddressFrom(dto);
 
     const [studentPasswordHash, fatherPasswordHash, motherPasswordHash] =
       await Promise.all([
@@ -1337,6 +1305,65 @@ export class UsersService {
   }
 
   /**
+   * Validates an optional class/section + roll number (both or neither; section exists; roll free).
+   * Shared by Add student, admin "Pending Enrolled" and admission approval.
+   */
+  async resolveEnrollmentTarget(
+    sectionId?: string | null,
+    rollRaw?: string | null,
+  ): Promise<{ sectionId: string; academicYearId: string; rollNumber: string } | null> {
+    const rollNumber = rollRaw?.trim() || '';
+    if (!sectionId && !rollNumber) return null;
+    if (!sectionId || !rollNumber) {
+      throw new BadRequestException({
+        message: 'Choose a class/section and enter a roll number (or leave both empty)',
+        fields: sectionId ? { rollNumber: 'Required with a class/section' } : { sectionId: 'Required with a roll number' },
+      });
+    }
+    const section = await this.prisma.section.findUnique({
+      where: { id: sectionId },
+      include: { class: true },
+    });
+    if (!section) throw new BadRequestException({ message: 'Class/section not found', fields: { sectionId: 'Not found' } });
+    const taken = await this.prisma.studentEnrollment.findFirst({
+      where: { sectionId: section.id, rollNumber },
+    });
+    if (taken) {
+      throw new ConflictException({
+        message: `Roll number ${rollNumber} is already used in this section`,
+        fields: { rollNumber: 'Already used in this section' },
+      });
+    }
+    return { sectionId: section.id, academicYearId: section.class.academicYearId, rollNumber };
+  }
+
+  /** City plus class, curriculum, shift, B-Form and guardian lines (kept on StudentProfile.address). */
+  private studentAddressFrom(d: {
+    city: string;
+    gradeLevel: string;
+    curriculum: string;
+    preferredShift: string;
+    studentBFormNo?: string | null;
+    guardianName?: string | null;
+    guardianRelation?: string | null;
+    guardianPhone?: string | null;
+  }): string {
+    const extras = [
+      `Class: ${d.gradeLevel.trim()}`,
+      `Curriculum: ${d.curriculum.trim()}`,
+      `Shift: ${d.preferredShift.trim().toLowerCase()} shift`,
+      d.studentBFormNo?.trim() ? `B-Form: ${d.studentBFormNo.trim()}` : null,
+      d.guardianName?.trim()
+        ? `Guardian: ${d.guardianName.trim()}${d.guardianRelation?.trim() ? ` (${d.guardianRelation.trim()})` : ''}${d.guardianPhone?.trim() ? ` · ${d.guardianPhone.trim()}` : ''}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const city = d.city.trim();
+    return extras ? `${city}\n\n${extras}` : city;
+  }
+
+  /**
    * Creates the student user, father and mother parent users, links them to the student,
    * and marks the admission application approved with `studentUserId` set.
    */
@@ -1374,6 +1401,7 @@ export class UsersService {
     const mu = accounts.motherUsername.trim().toLowerCase();
 
     await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
+    const enrollTarget = await this.resolveEnrollmentTarget(app.sectionId, app.sectionId ? app.rollNumber : null);
 
     const [studentPasswordHash, fatherPasswordHash, motherPasswordHash] =
       await Promise.all([
@@ -1391,11 +1419,11 @@ export class UsersService {
           {
             studentFirstName: app.firstName.trim(),
             studentLastName: app.lastName.trim(),
-            studentGender: null,
+            studentGender: app.gender ?? null,
             studentDateOfBirth: app.dateOfBirth,
             studentPhone: app.phone.trim(),
-            studentAddress: city,
-            bloodGroup: null,
+            studentAddress: this.studentAddressFrom(app),
+            bloodGroup: app.bloodGroup?.trim() || null,
             fatherName,
             motherName,
             fatherCnic: app.fatherCnic?.trim() || null,
@@ -1412,6 +1440,18 @@ export class UsersService {
             parentAddressLine: city,
           },
         );
+
+        if (enrollTarget) {
+          const profile = await tx.studentProfile.findUniqueOrThrow({ where: { userId: studentUserId } });
+          await tx.studentEnrollment.create({
+            data: {
+              studentId: profile.id,
+              sectionId: enrollTarget.sectionId,
+              academicYearId: enrollTarget.academicYearId,
+              rollNumber: enrollTarget.rollNumber,
+            },
+          });
+        }
 
         await tx.admissionApplication.update({
           where: { id: app.id },

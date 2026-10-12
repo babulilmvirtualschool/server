@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { R2Service } from '../media/r2.service';
 import { UsersService } from '../users/users.service';
 import { CreateAdmissionApplicationDto } from './dto/create-admission-application.dto';
+import { CreateManualAdmissionDto } from './dto/create-manual-admission.dto';
 import { CreateTeacherApplicationDto } from './dto/create-teacher-application.dto';
 import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.dto';
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
@@ -134,6 +135,33 @@ export class ApplicationsService {
         preferredShift: dto.preferredShift.trim().toLowerCase(),
         studentBFormNo: dto.studentBFormNo?.trim() || null,
       },
+    });
+  }
+
+  /**
+   * Admin "Pending Enrolled": saves the Add student form as a PENDING admission (no accounts yet).
+   * Father and mother names are required because approval creates their accounts.
+   */
+  async createManualAdmission(dto: CreateManualAdmissionDto) {
+    const fields: Record<string, string> = {};
+    if (!dto.fatherName?.trim()) fields.fatherName = 'Required';
+    if (!dto.motherName?.trim()) fields.motherName = 'Required';
+    if (!dto.dateOfBirth) fields.dateOfBirth = 'Required';
+    if (Object.keys(fields).length) {
+      throw new BadRequestException({ message: 'Father name, mother name and date of birth are required.', fields });
+    }
+    const target = await this.users.resolveEnrollmentTarget(dto.sectionId, dto.rollNumber);
+    const { gender, bloodGroup, sectionId: _s, rollNumber: _r, ...base } = dto;
+    const created = await this.createAdmission(base);
+    return this.prisma.admissionApplication.update({
+      where: { id: created.id },
+      data: {
+        gender: gender ?? null,
+        bloodGroup: bloodGroup?.trim() || null,
+        sectionId: target?.sectionId ?? null,
+        rollNumber: target?.rollNumber ?? null,
+      },
+      include: { section: { select: { id: true, name: true, class: { select: { name: true } } } } },
     });
   }
 
@@ -289,6 +317,7 @@ export class ApplicationsService {
         skip,
         take,
         orderBy: { createdAt: 'desc' },
+        include: { section: { select: { id: true, name: true, class: { select: { name: true } } } } },
       }),
     ]);
     return paginate(data, total, page, limit);

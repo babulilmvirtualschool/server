@@ -224,6 +224,7 @@ model Section {
   enrollments    StudentEnrollment[]
   attendance     AttendanceRecord[]
   announcements  Announcement[]
+  admissionApplications AdmissionApplication[]
 
   @@unique([classId, name])
   @@index([classTeacherId])
@@ -1062,6 +1063,13 @@ model AdmissionApplication {
   curriculum     String
   preferredShift String
   studentBFormNo String?
+
+  /// Set when an admin saves "Pending Enrolled" from Add student; approval uses them.
+  gender     Gender?
+  bloodGroup String?
+  sectionId  String?
+  section    Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  rollNumber String?
 
   studentUserId String? @unique
   studentUser   User?   @relation("AdmissionProvisionedStudent", fields: [studentUserId], references: [id], onDelete: SetNull)

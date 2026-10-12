@@ -5,6 +5,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApplicationsService } from './applications.service';
 import { CreateAdmissionApplicationDto } from './dto/create-admission-application.dto';
+import { CreateManualAdmissionDto } from './dto/create-manual-admission.dto';
 import { CreateTeacherApplicationDto } from './dto/create-teacher-application.dto';
 import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.dto';
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
@@ -70,6 +71,14 @@ export class ApplicationsController {
     @Body() dto: UpdateTeacherApplicationStatusDto,
   ) {
     return this.applications.updateTeacherStatus(id, dto);
+  }
+
+  /** Admin — Add student → "Pending Enrolled" (goes to Pending Admissions; accounts are created on approval). */
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post('admissions/manual')
+  createManualAdmission(@Body() dto: CreateManualAdmissionDto) {
+    return this.applications.createManualAdmission(dto);
   }
 
   @ApiBearerAuth()
