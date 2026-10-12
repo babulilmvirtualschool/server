@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
+import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
   CreateAdminDto,
@@ -34,6 +36,14 @@ export class UsersController {
   @Get()
   list(@Query() q: ListUsersDto) {
     return this.users.list(q);
+  }
+
+  /** Main admin only: counts per school and combined. */
+  @Roles(Role.ADMIN)
+  @Get('campus-totals')
+  campusTotals(@CurrentUser() user: AuthUser) {
+    if (!user.allCampuses) throw new ForbiddenException('Only a main admin can see both schools.');
+    return this.users.campusTotals();
   }
 
   @Roles(Role.ADMIN)
@@ -65,8 +75,8 @@ export class UsersController {
 
   @Roles(Role.ADMIN)
   @Post('admins')
-  createAdmin(@Body() dto: CreateAdminDto) {
-    return this.users.createAdmin(dto);
+  createAdmin(@Body() dto: CreateAdminDto, @CurrentUser() user: AuthUser) {
+    return this.users.createAdmin(dto, user.allCampuses);
   }
 
   @Roles(Role.ADMIN)

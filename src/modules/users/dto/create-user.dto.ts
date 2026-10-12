@@ -3,6 +3,7 @@ import { Gender, ParentRelation } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -64,6 +65,11 @@ export class CreateAdminDto extends BaseCreateUserDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  @ApiPropertyOptional({ description: 'Main admin: access to both schools (only a main admin can grant it).' })
+  @IsOptional()
+  @IsBoolean()
+  allCampuses?: boolean;
 }
 
 export class CreateTeacherDto extends BaseCreateUserDto {

@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Campus } from '@prisma/client';
 import {
   IsDateString,
   IsEmail,
+  IsEnum,
   IsOptional,
   IsString,
   MinLength,
@@ -9,6 +11,14 @@ import {
 } from 'class-validator';
 
 export class CreateAdmissionApplicationDto {
+  @ApiPropertyOptional({
+    enum: Campus,
+    description: 'Website form: Online or Physical school (default ONLINE). On admin routes the admin\'s school is used.',
+  })
+  @IsOptional()
+  @IsEnum(Campus)
+  campus?: Campus;
+
   @ApiProperty()
   @IsString()
   @MinLength(1)

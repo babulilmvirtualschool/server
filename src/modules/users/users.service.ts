@@ -1,13 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'crypto';
 import {
   AdmissionApplicationStatus,
+  Campus,
   Gender,
   ParentRelation,
   Prisma,
@@ -26,6 +27,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
+import { currentCampus, runUnscoped } from '../../common/campus/campus-context';
 import {
   baseUsernameFromNames,
   isValidUsernameFormat,
@@ -390,8 +392,11 @@ export class UsersService {
     return user;
   }
 
-  async createAdmin(dto: CreateAdminDto) {
+  async createAdmin(dto: CreateAdminDto, canGrantAllCampuses = false) {
     this.assertEmailOrUsername(dto);
+    if (dto.allCampuses && !canGrantAllCampuses) {
+      throw new ForbiddenException('Only a main admin can give access to both schools.');
+    }
     const passwordHash = await this.hashPassword(dto.password);
     return this.prisma.user.create({
       data: {
@@ -405,7 +410,7 @@ export class UsersService {
         gender: dto.gender,
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
         avatarKey: dto.avatarKey,
-        adminProfile: { create: { title: dto.title } },
+        adminProfile: { create: { title: dto.title, allCampuses: !!dto.allCampuses } },
       },
       select: this.userSelect(),
     });
@@ -1480,18 +1485,47 @@ export class UsersService {
     return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
   }
 
+  /** Separate serial number per school: ON-2026-0001 (online), PH-2026-0001 (physical). */
   private async allocateAdmissionNo(
     tx: Prisma.TransactionClient,
   ): Promise<string> {
-    for (let i = 0; i < 10; i++) {
-      const suffix = randomBytes(3).toString('hex').toUpperCase();
-      const candidate = `ADM-${new Date().getFullYear()}-${suffix}`;
-      const exists = await tx.studentProfile.findUnique({
-        where: { admissionNo: candidate },
-      });
+    const school = (currentCampus() ?? Campus.ONLINE) === Campus.PHYSICAL ? 'PH' : 'ON';
+    const prefix = `${school}-${new Date().getFullYear()}-`;
+    const last = await tx.studentProfile.findFirst({
+      where: { admissionNo: { startsWith: prefix } },
+      orderBy: { admissionNo: 'desc' },
+      select: { admissionNo: true },
+    });
+    let n = last ? parseInt(last.admissionNo.slice(prefix.length), 10) || 0 : 0;
+    for (let i = 0; i < 20; i++) {
+      n += 1;
+      const candidate = `${prefix}${String(n).padStart(4, '0')}`;
+      const exists = await tx.studentProfile.findUnique({ where: { admissionNo: candidate } });
       if (!exists) return candidate;
     }
     throw new Error('Could not allocate admission number');
+  }
+
+  /** Main admin: active students/teachers/admins/parents and pending applications per school, plus the total. */
+  async campusTotals() {
+    return runUnscoped(async () => {
+      const rows = await Promise.all(
+        [Campus.ONLINE, Campus.PHYSICAL].map(async (campus) => {
+          const [students, teachers, admins, parents, pendingAdmissions, pendingTeachers] = await Promise.all([
+            this.prisma.user.count({ where: { campus, role: Role.STUDENT, isActive: true } }),
+            this.prisma.user.count({ where: { campus, role: Role.TEACHER, isActive: true } }),
+            this.prisma.user.count({ where: { campus, role: Role.ADMIN, isActive: true } }),
+            this.prisma.user.count({ where: { campus, role: Role.PARENT, isActive: true } }),
+            this.prisma.admissionApplication.count({ where: { campus, status: AdmissionApplicationStatus.PENDING } }),
+            this.prisma.teacherApplication.count({ where: { campus, status: TeacherApplicationStatus.PENDING } }),
+          ]);
+          return { campus, students, teachers, admins, parents, pendingAdmissions, pendingTeachers };
+        }),
+      );
+      const keys = ['students', 'teachers', 'admins', 'parents', 'pendingAdmissions', 'pendingTeachers'] as const;
+      const total = Object.fromEntries(keys.map((k) => [k, rows.reduce((sum, r) => sum + r[k], 0)]));
+      return { campuses: rows, total };
+    });
   }
 
   private async pickUniquePhone(

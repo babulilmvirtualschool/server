@@ -1,11 +1,14 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Campus, Role } from '@prisma/client';
 
 export interface AuthUser {
   id: string;
   role: Role;
   email: string | null;
   username: string | null;
+  campus: Campus;
+  /** ADMIN only: main admin who can switch between both schools. */
+  allCampuses: boolean;
 }
 
 export const CurrentUser = createParamDecorator(

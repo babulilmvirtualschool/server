@@ -18,6 +18,12 @@ enum Role {
   PARENT
 }
 
+/// Online school vs physical (campus) school — each has its own isolated data (see src/common/campus).
+enum Campus {
+  ONLINE
+  PHYSICAL
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -29,6 +35,7 @@ model User {
   email        String?  @unique
   username     String?  @unique
   phone        String?  @unique
+  campus       Campus   @default(ONLINE)
   passwordHash String
   role         Role
   firstName    String
@@ -66,6 +73,7 @@ model User {
   salaryPaymentsMade   SalaryPayment[]      @relation("SalaryPayer")
 
   @@index([role])
+  @@index([campus])
 }
 
 model RefreshToken {
@@ -97,6 +105,8 @@ model AdminProfile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   title  String?
+  /// Main admin: can switch between both schools and see combined totals.
+  allCampuses Boolean @default(false)
 }
 
 model TeacherProfile {
@@ -183,7 +193,8 @@ model ParentStudentLink {
 
 model AcademicYear {
   id         String   @id @default(cuid())
-  name       String   @unique // e.g. "2025-2026"
+  name       String   // e.g. "2025-2026" (unique per school)
+  campus     Campus   @default(ONLINE)
   startDate  DateTime
   endDate    DateTime
   isCurrent  Boolean  @default(false)
@@ -194,6 +205,8 @@ model AcademicYear {
   courses      Course[]
   feeStructures FeeStructure[]
   exams        Exam[]
+
+  @@unique([campus, name])
 }
 
 model Class {
@@ -232,12 +245,16 @@ model Section {
 
 model Subject {
   id        String   @id @default(cuid())
-  name      String   @unique // e.g. "Physics"
-  code      String?  @unique // e.g. "PHY"
+  name      String   // e.g. "Physics" (unique per school)
+  code      String?  // e.g. "PHY" (unique per school)
+  campus    Campus   @default(ONLINE)
   createdAt DateTime @default(now())
 
   courses       Course[]
   bankQuestions BankQuestion[]
+
+  @@unique([campus, name])
+  @@unique([campus, code])
 }
 
 model Course {
@@ -960,6 +977,7 @@ enum AnnouncementAudience {
 
 model Announcement {
   id          String @id @default(cuid())
+  campus      Campus @default(ONLINE)
   title       String
   body        String
   audience    AnnouncementAudience
@@ -974,6 +992,7 @@ model Announcement {
 
   @@index([audience])
   @@index([publishedAt])
+  @@index([campus])
 }
 
 model Notification {
@@ -1041,6 +1060,7 @@ model AdmissionApplication {
   updatedAt DateTime @updatedAt
 
   status AdmissionApplicationStatus @default(PENDING)
+  campus Campus @default(ONLINE)
 
   firstName String
   lastName  String
@@ -1095,6 +1115,7 @@ model TeacherApplication {
   updatedAt DateTime @updatedAt
 
   status TeacherApplicationStatus @default(PENDING)
+  campus Campus @default(ONLINE)
 
   firstName String
   lastName  String

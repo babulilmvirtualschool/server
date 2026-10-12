@@ -28,6 +28,7 @@ export class AuthService {
     }
     const user = await this.prisma.user.findFirst({
       where: dto.email ? { email: dto.email } : { username: dto.username },
+      include: { adminProfile: { select: { allCampuses: true } } },
     });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');
@@ -54,6 +55,8 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         avatarKey: user.avatarKey,
+        campus: user.campus,
+        allCampuses: !!user.adminProfile?.allCampuses,
       },
     };
   }
@@ -232,6 +235,7 @@ export class AuthService {
         gender: true,
         dateOfBirth: true,
         createdAt: true,
+        campus: true,
         adminProfile: true,
         teacherProfile: true,
         studentProfile: true,

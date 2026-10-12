@@ -20,7 +20,7 @@ async function main() {
         role: Role.ADMIN,
         firstName,
         lastName,
-        adminProfile: { create: { title: 'Principal' } },
+        adminProfile: { create: { title: 'Principal', allCampuses: true } },
       },
     });
     console.log(`Seeded admin: ${email} / ${password}`);
@@ -31,7 +31,7 @@ async function main() {
   const now = new Date();
   const yearName = `${now.getFullYear()}-${now.getFullYear() + 1}`;
   const year = await prisma.academicYear.upsert({
-    where: { name: yearName },
+    where: { campus_name: { campus: 'ONLINE', name: yearName } },
     update: {},
     create: {
       name: yearName,
@@ -67,7 +67,7 @@ async function main() {
     { name: 'Islamiat', code: 'ISL' },
   ]) {
     await prisma.subject.upsert({
-      where: { name: s.name },
+      where: { campus_name: { campus: 'ONLINE', name: s.name } },
       update: {},
       create: s,
     });

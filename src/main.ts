@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { CampusContextInterceptor } from './common/campus/campus-context.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -37,7 +38,7 @@ async function bootstrap() {
 
   const reflector = app.get(Reflector);
   app.useGlobalGuards(new JwtAuthGuard(reflector), new RolesGuard(reflector));
-  app.useGlobalInterceptors(new TransformInterceptor());
+  app.useGlobalInterceptors(new CampusContextInterceptor(), new TransformInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
 
   const swagger = new DocumentBuilder()

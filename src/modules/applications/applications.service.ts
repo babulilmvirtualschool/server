@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   AdmissionApplicationStatus,
+  Campus,
   TeacherApplicationStatus,
 } from '@prisma/client';
 import { nanoid } from 'nanoid';
@@ -114,6 +115,8 @@ export class ApplicationsService {
     const emailRaw = dto.email?.trim();
     return this.prisma.admissionApplication.create({
       data: {
+        // Website form choice; on admin routes the campus middleware replaces it with the admin's school.
+        campus: dto.campus ?? Campus.ONLINE,
         firstName: dto.firstName.trim(),
         lastName: dto.lastName.trim(),
         phone: dto.phone.trim(),
@@ -172,6 +175,8 @@ export class ApplicationsService {
     this.assertValidCvKey(cvKey);
     return this.prisma.teacherApplication.create({
       data: {
+        // Website form choice; on admin routes the campus middleware replaces it with the admin's school.
+        campus: dto.campus ?? Campus.ONLINE,
         firstName: dto.firstName.trim(),
         lastName: dto.lastName.trim(),
         phone: dto.phone.trim(),
