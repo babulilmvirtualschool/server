@@ -13,6 +13,7 @@ import { R2Service } from '../media/r2.service';
 import { UsersService } from '../users/users.service';
 import { CreateAdmissionApplicationDto } from './dto/create-admission-application.dto';
 import { CreateManualAdmissionDto } from './dto/create-manual-admission.dto';
+import { CreateManualTeacherApplicationDto } from './dto/create-manual-teacher-application.dto';
 import { CreateTeacherApplicationDto } from './dto/create-teacher-application.dto';
 import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.dto';
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
@@ -183,6 +184,21 @@ export class ApplicationsService {
         currentWorkplace: dto.currentWorkplace?.trim() || null,
         cvKey,
         cvOriginalName: dto.cvOriginalName?.trim() || null,
+      },
+    });
+  }
+
+  /** Admin "Pending Enrolled" from Add teacher: saved as a PENDING faculty application (no account yet). */
+  async createManualTeacher(dto: CreateManualTeacherApplicationDto) {
+    const { gender, dateOfBirth, joiningDate, bio, ...base } = dto;
+    const created = await this.createTeacher(base);
+    return this.prisma.teacherApplication.update({
+      where: { id: created.id },
+      data: {
+        gender: gender ?? null,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        joiningDate: joiningDate ? new Date(joiningDate) : null,
+        bio: bio?.trim() || null,
       },
     });
   }

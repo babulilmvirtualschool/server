@@ -6,6 +6,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { ApplicationsService } from './applications.service';
 import { CreateAdmissionApplicationDto } from './dto/create-admission-application.dto';
 import { CreateManualAdmissionDto } from './dto/create-manual-admission.dto';
+import { CreateManualTeacherApplicationDto } from './dto/create-manual-teacher-application.dto';
 import { CreateTeacherApplicationDto } from './dto/create-teacher-application.dto';
 import { ListAdmissionApplicationsDto } from './dto/list-admission-applications.dto';
 import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto';
@@ -37,6 +38,14 @@ export class ApplicationsController {
   @Post('teachers')
   submitTeacher(@Body() dto: CreateTeacherApplicationDto) {
     return this.applications.createTeacher(dto);
+  }
+
+  /** Admin — Add teacher → "Pending Enrolled" (goes to Teacher applications; the account is created on approval). */
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post('teachers/manual')
+  createManualTeacher(@Body() dto: CreateManualTeacherApplicationDto) {
+    return this.applications.createManualTeacher(dto);
   }
 
   @ApiBearerAuth()

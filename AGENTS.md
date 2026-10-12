@@ -159,6 +159,8 @@ father/mother names and date of birth required; class/roll validated like Add st
 · `PATCH applications/admissions/:id` (`{status, studentUsername, fatherUsername, motherUsername, student/father/motherPassword, studentEmail?}`;
 approval keeps gender/blood group/class-curriculum-shift-guardian lines and, when the application has a class/section + roll, enrolls the
 student in the same transaction — roll taken meanwhile → 409, nothing created; columns added by `20261012074309_admission_application_admin_fields`)
+· `POST applications/teachers/manual` (Add teacher → "Pending Enrolled": the faculty-form fields (CV via `teachers/cv-presign`) + `gender`,
+`dateOfBirth`, `joiningDate`, `bio`; approval copies them to the user/profile — migration `20261012075038_teacher_application_admin_fields`)
 · `GET applications/teachers?search&page` · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
 · `PATCH applications/teachers/:id` (`{status, teacherUsername, teacherPassword, employeeCode}`). PATCH responses are `{data, meta:{accountsProvisioned}}`.
 Approval provisions accounts in one transaction (admission: student `ADM-<year>-<hex>` + father + mother, father primary;

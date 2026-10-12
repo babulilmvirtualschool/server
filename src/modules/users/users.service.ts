@@ -1624,12 +1624,15 @@ export class UsersService {
             role: Role.TEACHER,
             firstName: app.firstName.trim(),
             lastName: app.lastName.trim(),
+            gender: app.gender ?? null,
+            dateOfBirth: app.dateOfBirth ?? null,
             teacherProfile: {
               create: {
                 employeeCode: accounts.employeeCode.trim(),
                 qualification: app.highestQualification,
                 specialization: app.subjectExpertise,
-                joiningDate: new Date(),
+                joiningDate: app.joiningDate ?? new Date(),
+                bio: app.bio ?? null,
                 cnic: app.cnic.trim(),
                 city: app.city.trim(),
                 teachingExperience: app.teachingExperience.trim(),

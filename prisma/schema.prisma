@@ -1112,6 +1112,12 @@ model TeacherApplication {
   /// R2 object key when CV was uploaded via public presign.
   cvKey          String?
 
+  /// Set when an admin saves "Pending Enrolled" from Add teacher; approval copies them to the account.
+  gender      Gender?
+  dateOfBirth DateTime? @db.Date
+  joiningDate DateTime? @db.Date
+  bio         String?
+
   teacherUserId String? @unique
   teacherUser   User?   @relation("TeacherApplicationProvisionedUser", fields: [teacherUserId], references: [id], onDelete: SetNull)
 
