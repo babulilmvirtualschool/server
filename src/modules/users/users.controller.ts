@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -23,6 +24,7 @@ import {
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
 import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateStudentRecordDto } from './dto/update-student-record.dto';
 import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { UsersService } from './users.service';
 
@@ -36,6 +38,13 @@ export class UsersController {
   @Get()
   list(@Query() q: ListUsersDto) {
     return this.users.list(q);
+  }
+
+  /** Edit student: the full record (student, admission details, parents, class/section). */
+  @Roles(Role.ADMIN)
+  @Put('students/:id/record')
+  updateStudentRecord(@Param('id') id: string, @Body() dto: UpdateStudentRecordDto) {
+    return this.users.updateStudentRecord(id, dto);
   }
 
   /** Main admin only: counts per school and combined. */

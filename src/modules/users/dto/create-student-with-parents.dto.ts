@@ -76,6 +76,7 @@ export class CreateStudentWithParentsDto {
   studentBFormNo?: string;
 
   @ApiProperty()
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   fatherName!: string;
 
@@ -90,6 +91,7 @@ export class CreateStudentWithParentsDto {
   fatherPhone?: string;
 
   @ApiProperty()
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   motherName!: string;
 
@@ -127,11 +129,13 @@ export class CreateStudentWithParentsDto {
   studentUsername!: string;
 
   @ApiProperty()
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   @Matches(USERNAME_RE, { message: 'Father username: invalid format.' })
   fatherUsername!: string;
 
   @ApiProperty()
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   @Matches(USERNAME_RE, { message: 'Mother username: invalid format.' })
   motherUsername!: string;
@@ -142,14 +146,23 @@ export class CreateStudentWithParentsDto {
   studentPassword!: string;
 
   @ApiProperty({ minLength: 8 })
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   @MinLength(8)
   fatherPassword!: string;
 
   @ApiProperty({ minLength: 8 })
+  @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()
   @MinLength(8)
   motherPassword!: string;
+
+  @ApiPropertyOptional({
+    description: 'Sibling admission: StudentProfile id of a brother/sister already in school — their father/mother accounts are linked; no parent fields or logins needed.',
+  })
+  @IsOptional()
+  @IsString()
+  siblingOfStudentId?: string;
 
   @ApiPropertyOptional({ description: 'Enroll into this section (current classes); requires rollNumber' })
   @IsOptional()

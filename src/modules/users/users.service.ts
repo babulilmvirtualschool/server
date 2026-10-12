@@ -26,6 +26,17 @@ import {
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
+import { UpdateStudentRecordDto } from './dto/update-student-record.dto';
+
+type StudentRecordFields = {
+  appliedClass: string | null;
+  curriculum: string | null;
+  preferredShift: string | null;
+  bFormNo: string | null;
+  guardianName: string | null;
+  guardianRelation: string | null;
+  guardianPhone: string | null;
+};
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
 import { currentCampus, runUnscoped } from '../../common/campus/campus-context';
 import {
@@ -351,7 +362,28 @@ export class UsersService {
           },
         },
       });
-      return { ...user, parentLinks };
+      const parentIds = parentLinks.map((l) => l.parentId);
+      const siblingLinks = parentIds.length
+        ? await this.prisma.parentStudentLink.findMany({
+            where: { parentId: { in: parentIds }, NOT: { studentId: user.studentProfile.id } },
+            distinct: ['studentId'],
+            select: {
+              student: {
+                select: {
+                  id: true,
+                  admissionNo: true,
+                  user: { select: { id: true, firstName: true, lastName: true, isActive: true } },
+                  enrollments: {
+                    where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
+                    take: 1,
+                    select: { rollNumber: true, section: { select: { name: true, class: { select: { name: true } } } } },
+                  },
+                },
+              },
+            },
+          })
+        : [];
+      return { ...user, parentLinks, siblings: siblingLinks.map((l) => l.student) };
     }
 
     if (user.role === Role.PARENT && user.parentProfile?.id) {
@@ -1118,6 +1150,9 @@ export class UsersService {
       studentPhone: string;
       studentAddress: string;
       bloodGroup: string | null;
+      record: StudentRecordFields;
+      /** Sibling admission: link these existing parent profiles instead of creating father/mother accounts. */
+      existingParents?: { parentId: string; relation: ParentRelation }[];
       fatherName: string;
       motherName: string;
       fatherCnic: string | null;
@@ -1129,8 +1164,8 @@ export class UsersService {
       motherUsername: string;
       studentEmail: string | null;
       studentPasswordHash: string;
-      fatherPasswordHash: string;
-      motherPasswordHash: string;
+      fatherPasswordHash: string | null;
+      motherPasswordHash: string | null;
       parentAddressLine: string;
     },
   ): Promise<{ studentUserId: string }> {
@@ -1155,6 +1190,7 @@ export class UsersService {
             admissionDate: new Date(),
             address: params.studentAddress,
             bloodGroup: params.bloodGroup,
+            ...params.record,
             emergencyPhone:
               params.fatherPhone ||
               params.motherPhone ||
@@ -1164,6 +1200,18 @@ export class UsersService {
       },
       include: { studentProfile: true },
     });
+
+    if (params.existingParents?.length) {
+      await tx.parentStudentLink.createMany({
+        data: params.existingParents.map((p) => ({
+          parentId: p.parentId,
+          studentId: studentUser.studentProfile!.id,
+          relation: p.relation,
+          isPrimary: p.relation === ParentRelation.FATHER,
+        })),
+      });
+      return { studentUserId: studentUser.id };
+    }
 
     const fatherPhone = await this.pickUniquePhone(tx, params.fatherPhone, [
       params.studentPhone,
@@ -1177,7 +1225,7 @@ export class UsersService {
       data: {
         username: params.fatherUsername,
         phone: fatherPhone,
-        passwordHash: params.fatherPasswordHash,
+        passwordHash: params.fatherPasswordHash!,
         role: Role.PARENT,
         firstName: ff.firstName,
         lastName: ff.lastName,
@@ -1196,7 +1244,7 @@ export class UsersService {
       data: {
         username: params.motherUsername,
         phone: motherPhone,
-        passwordHash: params.motherPasswordHash,
+        passwordHash: params.motherPasswordHash!,
         role: Role.PARENT,
         firstName: mf.firstName,
         lastName: mf.lastName,
@@ -1237,9 +1285,10 @@ export class UsersService {
    * Admin: create student + both parents in one step (same as admission approval provisioning).
    */
   async createStudentWithParents(dto: CreateStudentWithParentsDto) {
-    const fatherName = dto.fatherName.trim();
-    const motherName = dto.motherName.trim();
-    if (!fatherName || !motherName) {
+    const sibling = dto.siblingOfStudentId ? await this.siblingFamily(dto.siblingOfStudentId) : null;
+    const fatherName = sibling ? '' : (dto.fatherName ?? '').trim();
+    const motherName = sibling ? '' : (dto.motherName ?? '').trim();
+    if (!sibling && (!fatherName || !motherName)) {
       throw new BadRequestException('Father and mother names are required.');
     }
 
@@ -1247,10 +1296,11 @@ export class UsersService {
       ? dto.studentAccountEmail.trim().toLowerCase()
       : null;
     const su = dto.studentUsername.trim().toLowerCase();
-    const fu = dto.fatherUsername.trim().toLowerCase();
-    const mu = dto.motherUsername.trim().toLowerCase();
+    const fu = sibling ? '' : (dto.fatherUsername ?? '').trim().toLowerCase();
+    const mu = sibling ? '' : (dto.motherUsername ?? '').trim().toLowerCase();
 
-    await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
+    if (sibling) await this.assertStudentIdentifiersFree(su, studentEmail);
+    else await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
 
     // Optional: admit straight into a class/section with a roll number.
     const enrollTarget = await this.resolveEnrollmentTarget(dto.sectionId, dto.rollNumber);
@@ -1260,13 +1310,13 @@ export class UsersService {
       : null;
 
     const city = dto.city.trim();
-    const studentAddress = this.studentAddressFrom(dto);
+    const studentAddress = city;
 
     const [studentPasswordHash, fatherPasswordHash, motherPasswordHash] =
       await Promise.all([
         this.hashPassword(dto.studentPassword),
-        this.hashPassword(dto.fatherPassword),
-        this.hashPassword(dto.motherPassword),
+        sibling ? null : this.hashPassword(dto.fatherPassword),
+        sibling ? null : this.hashPassword(dto.motherPassword),
       ]);
 
     const studentDob = dto.dateOfBirth
@@ -1283,6 +1333,8 @@ export class UsersService {
           studentPhone: dto.phone.trim(),
           studentAddress,
           bloodGroup: dto.bloodGroup?.trim() || null,
+          record: this.studentRecordFrom(dto),
+          existingParents: sibling?.links,
           fatherName,
           motherName,
           fatherCnic: dto.fatherCnic?.trim() || null,
@@ -1347,30 +1399,176 @@ export class UsersService {
     return { sectionId: section.id, academicYearId: section.class.academicYearId, rollNumber };
   }
 
-  /** City plus class, curriculum, shift, B-Form and guardian lines (kept on StudentProfile.address). */
-  private studentAddressFrom(d: {
-    city: string;
-    gradeLevel: string;
-    curriculum: string;
-    preferredShift: string;
+  /** Admission details stored in their own StudentProfile fields. */
+  private studentRecordFrom(d: {
+    gradeLevel?: string | null;
+    curriculum?: string | null;
+    preferredShift?: string | null;
     studentBFormNo?: string | null;
     guardianName?: string | null;
     guardianRelation?: string | null;
     guardianPhone?: string | null;
-  }): string {
-    const extras = [
-      `Class: ${d.gradeLevel.trim()}`,
-      `Curriculum: ${d.curriculum.trim()}`,
-      `Shift: ${d.preferredShift.trim().toLowerCase()} shift`,
-      d.studentBFormNo?.trim() ? `B-Form: ${d.studentBFormNo.trim()}` : null,
-      d.guardianName?.trim()
-        ? `Guardian: ${d.guardianName.trim()}${d.guardianRelation?.trim() ? ` (${d.guardianRelation.trim()})` : ''}${d.guardianPhone?.trim() ? ` · ${d.guardianPhone.trim()}` : ''}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
-    const city = d.city.trim();
-    return extras ? `${city}\n\n${extras}` : city;
+  }): StudentRecordFields {
+    const v = (x?: string | null) => x?.trim() || null;
+    return {
+      appliedClass: v(d.gradeLevel),
+      curriculum: v(d.curriculum),
+      preferredShift: v(d.preferredShift)?.toLowerCase() ?? null,
+      bFormNo: v(d.studentBFormNo),
+      guardianName: v(d.guardianName),
+      guardianRelation: v(d.guardianRelation),
+      guardianPhone: v(d.guardianPhone),
+    };
+  }
+
+  /** Parents of an existing student, for a sibling admission (father/mother/guardian links are reused). */
+  async siblingFamily(siblingStudentProfileId: string) {
+    const sib = await this.prisma.studentProfile.findUnique({
+      where: { id: siblingStudentProfileId },
+      include: {
+        parents: {
+          include: {
+            parent: {
+              select: { id: true, cnic: true, user: { select: { firstName: true, lastName: true, phone: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (!sib) {
+      throw new BadRequestException({ message: 'Sibling not found', fields: { siblingOfStudentId: 'Not found' } });
+    }
+    if (!sib.parents.length) {
+      throw new BadRequestException({
+        message: 'That student has no parent accounts to link. Add the student without the sibling option.',
+        fields: { siblingOfStudentId: 'No parents linked' },
+      });
+    }
+    const of = (r: ParentRelation) => sib.parents.find((p) => p.relation === r)?.parent;
+    const name = (p?: { user: { firstName: string; lastName: string } }) =>
+      p ? [p.user.firstName, p.user.lastName].filter((x) => x && x !== '.').join(' ') : null;
+    return {
+      links: sib.parents.map((p) => ({ parentId: p.parentId, relation: p.relation })),
+      father: of(ParentRelation.FATHER),
+      mother: of(ParentRelation.MOTHER),
+      fatherName: name(of(ParentRelation.FATHER)),
+      motherName: name(of(ParentRelation.MOTHER)),
+    };
+  }
+
+  /** Student-only login checks (sibling admissions create no parent accounts). */
+  private async assertStudentIdentifiersFree(username: string, email: string | null) {
+    const fields: Record<string, string> = {};
+    if (!isValidUsernameFormat(username)) {
+      fields.studentUsername = 'Use 3–32 characters: start with a letter or digit, then letters, digits, dots, or underscores.';
+    } else if (await this.prisma.user.findUnique({ where: { username } })) {
+      fields.studentUsername = 'This username is already taken.';
+    }
+    if (email && (await this.prisma.user.findFirst({ where: { email } }))) {
+      fields.studentEmail = 'This email is already registered to another account.';
+    }
+    if (Object.keys(fields).length) {
+      throw new BadRequestException({ message: 'Could not create the account: fix the login details highlighted below.', fields });
+    }
+  }
+
+  /**
+   * Admin "Edit student" — the whole record: student, admission details, parents (through the student's links)
+   * and the current-year class/section + roll (created or moved; left alone when not given).
+   */
+  async updateStudentRecord(userId: string, dto: UpdateStudentRecordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { studentProfile: { include: { parents: { include: { parent: { include: { user: true } } } } } } },
+    });
+    if (!user || user.role !== Role.STUDENT || !user.studentProfile) throw new NotFoundException('Student not found');
+    const profile = user.studentProfile;
+
+    const email = dto.studentAccountEmail?.trim() ? dto.studentAccountEmail.trim().toLowerCase() : null;
+    const phone = dto.phone.trim();
+    const fields: Record<string, string> = {};
+    if (email && email !== user.email && (await this.prisma.user.findFirst({ where: { email, NOT: { id: userId } } }))) {
+      fields.studentEmail = 'This email is already registered to another account.';
+    }
+    if (phone !== user.phone && (await this.prisma.user.findFirst({ where: { phone, NOT: { id: userId } } }))) {
+      fields.phone = 'This phone number is already linked to another user.';
+    }
+    const parentOf = (r: ParentRelation) => profile.parents.find((p) => p.relation === r)?.parent;
+    const father = parentOf(ParentRelation.FATHER);
+    const mother = parentOf(ParentRelation.MOTHER);
+    for (const [key, parent, raw] of [
+      ['fatherPhone', father, dto.fatherPhone],
+      ['motherPhone', mother, dto.motherPhone],
+    ] as const) {
+      const p = raw?.trim() || null;
+      if (parent && p && p !== parent.user.phone && (await this.prisma.user.findFirst({ where: { phone: p, NOT: { id: parent.userId } } }))) {
+        fields[key] = 'This phone number is already linked to another user.';
+      }
+    }
+    if (Object.keys(fields).length) throw new BadRequestException({ message: 'Please fix the highlighted fields.', fields });
+
+    // class/section: only when given; moving keeps one enrollment per year
+    let enroll: { sectionId: string; academicYearId: string; rollNumber: string } | null = null;
+    if (dto.sectionId || dto.rollNumber?.trim()) {
+      const current = await this.prisma.studentEnrollment.findFirst({
+        where: { studentId: profile.id, sectionId: dto.sectionId ?? undefined, rollNumber: dto.rollNumber?.trim() },
+      });
+      if (!current) enroll = await this.resolveEnrollmentTarget(dto.sectionId, dto.rollNumber);
+    }
+
+    const v = (x?: string | null) => x?.trim() || null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          phone,
+          email,
+          gender: dto.gender ?? null,
+          dateOfBirth: new Date(dto.dateOfBirth),
+        },
+      });
+      await tx.studentProfile.update({
+        where: { id: profile.id },
+        data: {
+          address: dto.city.trim(),
+          bloodGroup: v(dto.bloodGroup),
+          curriculum: v(dto.curriculum),
+          preferredShift: v(dto.preferredShift),
+          bFormNo: v(dto.studentBFormNo),
+          guardianName: v(dto.guardianName),
+          guardianRelation: v(dto.guardianRelation),
+          guardianPhone: v(dto.guardianPhone),
+        },
+      });
+      for (const [parent, nameRaw, cnic, ph] of [
+        [father, dto.fatherName, dto.fatherCnic, dto.fatherPhone],
+        [mother, dto.motherName, dto.motherCnic, dto.motherPhone],
+      ] as const) {
+        if (!parent) continue;
+        const n = nameRaw?.trim() ? this.splitDisplayName(nameRaw) : null;
+        await tx.user.update({
+          where: { id: parent.userId },
+          data: { ...(n ? { firstName: n.firstName, lastName: n.lastName } : {}), phone: v(ph) },
+        });
+        await tx.parentProfile.update({ where: { id: parent.id }, data: { cnic: v(cnic) } });
+      }
+      if (enroll) {
+        const existing = await tx.studentEnrollment.findFirst({
+          where: { studentId: profile.id, academicYearId: enroll.academicYearId },
+        });
+        if (existing) {
+          await tx.studentEnrollment.update({
+            where: { id: existing.id },
+            data: { sectionId: enroll.sectionId, rollNumber: enroll.rollNumber, status: 'ACTIVE' },
+          });
+        } else {
+          await tx.studentEnrollment.create({ data: { studentId: profile.id, ...enroll } });
+        }
+      }
+    });
+    return this.findById(userId);
   }
 
   /**
@@ -1387,6 +1585,9 @@ export class UsersService {
       studentPassword: string;
       fatherPassword: string;
       motherPassword: string;
+      /** Class chosen in the approval window (overrides the one saved on the application). */
+      sectionId?: string | null;
+      rollNumber?: string | null;
     },
   ): Promise<{ accountsProvisioned: boolean }> {
     const app = await this.prisma.admissionApplication.findUnique({
@@ -1397,9 +1598,10 @@ export class UsersService {
       return { accountsProvisioned: false };
     }
 
-    const fatherName = app.fatherName?.trim();
-    const motherName = app.motherName?.trim();
-    if (!fatherName || !motherName) {
+    const sibling = app.siblingOfStudentId ? await this.siblingFamily(app.siblingOfStudentId) : null;
+    const fatherName = app.fatherName?.trim() ?? '';
+    const motherName = app.motherName?.trim() ?? '';
+    if (!sibling && (!fatherName || !motherName)) {
       throw new BadRequestException(
         'Father and mother names are required on the application before approval can create accounts.',
       );
@@ -1407,17 +1609,20 @@ export class UsersService {
 
     const studentEmail = accounts.studentEmail;
     const su = accounts.studentUsername.trim().toLowerCase();
-    const fu = accounts.fatherUsername.trim().toLowerCase();
-    const mu = accounts.motherUsername.trim().toLowerCase();
+    const fu = sibling ? '' : accounts.fatherUsername.trim().toLowerCase();
+    const mu = sibling ? '' : accounts.motherUsername.trim().toLowerCase();
 
-    await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
-    const enrollTarget = await this.resolveEnrollmentTarget(app.sectionId, app.sectionId ? app.rollNumber : null);
+    if (sibling) await this.assertStudentIdentifiersFree(su, studentEmail);
+    else await this.assertProvisionIdentifiersFree(su, fu, mu, studentEmail);
+    const chosenSection = accounts.sectionId || app.sectionId;
+    const chosenRoll = accounts.sectionId ? accounts.rollNumber : app.rollNumber;
+    const enrollTarget = await this.resolveEnrollmentTarget(chosenSection, chosenSection ? chosenRoll : null);
 
     const [studentPasswordHash, fatherPasswordHash, motherPasswordHash] =
       await Promise.all([
         this.hashPassword(accounts.studentPassword),
-        this.hashPassword(accounts.fatherPassword),
-        this.hashPassword(accounts.motherPassword),
+        sibling ? null : this.hashPassword(accounts.fatherPassword),
+        sibling ? null : this.hashPassword(accounts.motherPassword),
       ]);
 
     const city = app.city.trim();
@@ -1432,8 +1637,10 @@ export class UsersService {
             studentGender: app.gender ?? null,
             studentDateOfBirth: app.dateOfBirth,
             studentPhone: app.phone.trim(),
-            studentAddress: this.studentAddressFrom(app),
+            studentAddress: city,
             bloodGroup: app.bloodGroup?.trim() || null,
+            record: this.studentRecordFrom(app),
+            existingParents: sibling?.links,
             fatherName,
             motherName,
             fatherCnic: app.fatherCnic?.trim() || null,

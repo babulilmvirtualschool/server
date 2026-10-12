@@ -26,4 +26,9 @@ export class CreateManualAdmissionDto extends CreateAdmissionApplicationDto {
   @IsString()
   @MaxLength(30)
   rollNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Sibling of this StudentProfile: approval links their father/mother accounts.' })
+  @IsOptional()
+  @IsString()
+  siblingOfStudentId?: string;
 }

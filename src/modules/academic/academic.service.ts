@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Campus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateAcademicYearDto,
@@ -297,6 +298,16 @@ export class AcademicService {
         fields: { rollNumber: 'Already used in this section' },
       });
     }
+  }
+
+  /** Current-year class names of one school, ordered by level (public website form). */
+  async publicClassNames(campus: Campus) {
+    const classes = await this.prisma.class.findMany({
+      where: { academicYear: { isCurrent: true, campus } },
+      orderBy: [{ level: 'asc' }, { name: 'asc' }],
+      select: { name: true },
+    });
+    return [...new Set(classes.map((c) => c.name))];
   }
 
   listEnrollments(

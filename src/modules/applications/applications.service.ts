@@ -147,15 +147,27 @@ export class ApplicationsService {
    * Father and mother names are required because approval creates their accounts.
    */
   async createManualAdmission(dto: CreateManualAdmissionDto) {
+    const sibling = dto.siblingOfStudentId ? await this.users.siblingFamily(dto.siblingOfStudentId) : null;
     const fields: Record<string, string> = {};
-    if (!dto.fatherName?.trim()) fields.fatherName = 'Required';
-    if (!dto.motherName?.trim()) fields.motherName = 'Required';
+    if (!sibling && !dto.fatherName?.trim()) fields.fatherName = 'Required';
+    if (!sibling && !dto.motherName?.trim()) fields.motherName = 'Required';
     if (!dto.dateOfBirth) fields.dateOfBirth = 'Required';
     if (Object.keys(fields).length) {
       throw new BadRequestException({ message: 'Father name, mother name and date of birth are required.', fields });
     }
     const target = await this.users.resolveEnrollmentTarget(dto.sectionId, dto.rollNumber);
-    const { gender, bloodGroup, sectionId: _s, rollNumber: _r, ...base } = dto;
+    const { gender, bloodGroup, sectionId: _s, rollNumber: _r, siblingOfStudentId, ...base } = dto;
+    if (sibling) {
+      // Show the existing family on the application; approval links these parent accounts.
+      Object.assign(base, {
+        fatherName: sibling.fatherName ?? undefined,
+        fatherPhone: sibling.father?.user.phone ?? undefined,
+        fatherCnic: sibling.father?.cnic ?? undefined,
+        motherName: sibling.motherName ?? undefined,
+        motherPhone: sibling.mother?.user.phone ?? undefined,
+        motherCnic: sibling.mother?.cnic ?? undefined,
+      });
+    }
     const created = await this.createAdmission(base);
     return this.prisma.admissionApplication.update({
       where: { id: created.id },
@@ -164,6 +176,7 @@ export class ApplicationsService {
         bloodGroup: bloodGroup?.trim() || null,
         sectionId: target?.sectionId ?? null,
         rollNumber: target?.rollNumber ?? null,
+        siblingOfStudentId: sibling ? siblingOfStudentId : null,
       },
       include: { section: { select: { id: true, name: true, class: { select: { name: true } } } } },
     });
@@ -338,7 +351,10 @@ export class ApplicationsService {
         skip,
         take,
         orderBy: { createdAt: 'desc' },
-        include: { section: { select: { id: true, name: true, class: { select: { name: true } } } } },
+        include: {
+          section: { select: { id: true, name: true, class: { select: { name: true } } } },
+          siblingOf: { select: { id: true, admissionNo: true, user: { select: { firstName: true, lastName: true } } } },
+        },
       }),
     ]);
     return paginate(data, total, page, limit);
@@ -362,6 +378,8 @@ export class ApplicationsService {
       fatherUsername,
       motherUsername,
       studentEmail,
+      sectionId,
+      rollNumber,
     } = dto;
 
     if (status === 'REJECTED') {
@@ -395,10 +413,11 @@ export class ApplicationsService {
       return { data: updated, meta: { accountsProvisioned: false } };
     }
 
+    // Sibling admissions link existing parents: only the student's login is needed.
+    const sibling = !!existing.siblingOfStudentId;
     if (
       !studentPassword?.trim() ||
-      !fatherPassword?.trim() ||
-      !motherPassword?.trim()
+      (!sibling && (!fatherPassword?.trim() || !motherPassword?.trim()))
     ) {
       throw new BadRequestException(
         'When approving, studentPassword, fatherPassword, and motherPassword are required (min. 8 characters each).',
@@ -407,8 +426,7 @@ export class ApplicationsService {
 
     if (
       !studentUsername?.trim() ||
-      !fatherUsername?.trim() ||
-      !motherUsername?.trim()
+      (!sibling && (!fatherUsername?.trim() || !motherUsername?.trim()))
     ) {
       throw new BadRequestException({
         message:
@@ -434,12 +452,14 @@ export class ApplicationsService {
     const { accountsProvisioned } =
       await this.users.provisionAccountsForApprovedAdmission(id, {
         studentUsername: studentUsername.trim(),
-        fatherUsername: fatherUsername.trim(),
-        motherUsername: motherUsername.trim(),
+        fatherUsername: fatherUsername?.trim() ?? '',
+        motherUsername: motherUsername?.trim() ?? '',
         studentEmail: studentEmailNorm,
         studentPassword: studentPassword.trim(),
-        fatherPassword: fatherPassword.trim(),
-        motherPassword: motherPassword.trim(),
+        fatherPassword: fatherPassword?.trim() ?? '',
+        motherPassword: motherPassword?.trim() ?? '',
+        sectionId: sectionId || null,
+        rollNumber: rollNumber?.trim() || null,
       });
 
     const updated = await this.prisma.admissionApplication.findUniqueOrThrow({

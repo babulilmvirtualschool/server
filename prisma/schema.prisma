@@ -144,8 +144,17 @@ model StudentProfile {
   bloodGroup     String?
   address        String?
   emergencyPhone String?
+  /// Admission details (used to be appended to `address`).
+  appliedClass     String?
+  curriculum       String?
+  preferredShift   String?
+  bFormNo          String?
+  guardianName     String?
+  guardianRelation String?
+  guardianPhone    String?
 
   enrollments         StudentEnrollment[]
+  siblingAdmissions   AdmissionApplication[] @relation("AdmissionSibling")
   parents             ParentStudentLink[]
   attendance          AttendanceRecord[]
   assignmentSubs      AssignmentSubmission[]
@@ -1090,6 +1099,9 @@ model AdmissionApplication {
   sectionId  String?
   section    Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   rollNumber String?
+  /// "Sibling of an existing student": approval links that student's parents instead of creating new parent accounts.
+  siblingOfStudentId String?
+  siblingOf          StudentProfile? @relation("AdmissionSibling", fields: [siblingOfStudentId], references: [id], onDelete: SetNull)
 
   studentUserId String? @unique
   studentUser   User?   @relation("AdmissionProvisionedStudent", fields: [studentUserId], references: [id], onDelete: SetNull)

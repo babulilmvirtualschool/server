@@ -75,4 +75,14 @@ export class UpdateAdmissionStatusDto {
   )
   @IsEmail({}, { message: 'Invalid student email' })
   studentEmail?: string;
+
+  @ApiPropertyOptional({ description: 'Class/section to enroll into on approval (with rollNumber); overrides the one saved on the application.' })
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  rollNumber?: string;
 }

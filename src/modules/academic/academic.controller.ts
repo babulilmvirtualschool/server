@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import {
   AuthUser,
   CurrentUser,
@@ -35,6 +36,13 @@ import {
 @Controller()
 export class AcademicController {
   constructor(private readonly svc: AcademicService) {}
+
+  /** Public — class names of a school's current year, for the website admission form. */
+  @Public()
+  @Get('public/classes')
+  publicClasses(@Query('campus') campus?: string) {
+    return this.svc.publicClassNames(campus === 'PHYSICAL' ? 'PHYSICAL' : 'ONLINE');
+  }
 
   // Academic Years
   @Roles(Role.ADMIN)
