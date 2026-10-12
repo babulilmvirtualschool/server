@@ -166,6 +166,12 @@ approving a faculty application copies them, plus the application CV, instead of
 optional `sectionId` + `rollNumber` enrolls the student in the same transaction — both or neither, roll must be free → 409 `fields`).
 `GET users?role=STUDENT` rows also carry `avatarKey`, `studentProfile.id`, father name (`parents[0]`) and the current-year ACTIVE
 enrollment (class/section/roll) for the All Students table.
+· `PUT users/students/:id/record` (Edit student: the whole record — user, `StudentProfile` admission fields, father/mother through the
+student's links (name/phone/CNIC), current-year class/section + roll created or moved; 409 roll clash / 400 phone in use)
+· `POST users/students/with-parents` and `POST applications/admissions/manual` accept `siblingOfStudentId` (StudentProfile id): the
+sibling's father/mother are linked instead of creating parent accounts (no parent names/logins needed); `GET users/:id` adds `siblings`.
+Admission details live in `StudentProfile.appliedClass/curriculum/preferredShift/bFormNo/guardian*` (migration
+`20261012114324_student_record_fields_siblings` moved them out of `address`, which now holds the city).
 · `POST users/parents/:userId/children` · `DELETE users/parents/:userId/children/:linkId` · `PATCH users/:id`
 · `PATCH users/:id/password` · `POST users/:id/activate|deactivate` · `DELETE users/:id` (blocked if impact has blockers → 409).
 "Staff" in the web UI = users with role ADMIN.
@@ -184,7 +190,8 @@ student in the same transaction — roll taken meanwhile → 409, nothing create
 Approval provisions accounts in one transaction (admission: student `ADM-<year>-<hex>` + father + mother, father primary;
 teacher: employee code `TCH00001`…). Re-approving an already provisioned application just sets status.
 
-**academic** — reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
+**academic** — public: `GET public/classes?campus=ONLINE|PHYSICAL` (current-year class names, website admission form).
+Reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
 · `GET me/courses?academicYearId` (T: taught courses, S: enrolled sections' courses, others `[]`)
 · `POST enrollments/shift` A (`{studentIds: StudentProfile ids, sectionId}`; moves their enrollment in that section's year; all-or-nothing:
