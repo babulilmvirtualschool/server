@@ -116,6 +116,13 @@ export class UsersService {
           cnic: true,
           occupation: true,
           _count: { select: { children: true } },
+          children: {
+            take: 6,
+            select: {
+              relation: true,
+              student: { select: { user: { select: { firstName: true, lastName: true } } } },
+            },
+          },
         },
       },
       teacherProfile: {
