@@ -3,6 +3,7 @@ import { Gender, Role } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsBooleanString,
+  IsString,
   IsEnum,
   IsIn,
   IsInt,
@@ -58,4 +59,9 @@ export class ListUsersDto extends PaginationDto {
 }
 
 /** Same filters as the list, without pagination (student exports). */
-export class ExportStudentsDto extends ListUsersDto {}
+export class ExportStudentsDto extends ListUsersDto {
+  @ApiPropertyOptional({ description: 'Only students actively enrolled in this section' })
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+}

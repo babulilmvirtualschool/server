@@ -138,7 +138,7 @@ auth: `POST auth/change-password`, `GET auth/me`, `PATCH auth/me`.
 
 **users** (A) — `GET users?role&isActive&search&page&limit&sort&gender&minAge&maxAge&hasPhoto` (paginated; `sort` = newest|oldest|name_asc|name_desc,
 age from date of birth, `hasPhoto` = true|false on `avatarKey`; search also matches `admissionNo`)
-· `GET users/students/export` (same filters, no paging, max 5000: admission no., class/section/roll, contacts, father/mother/guardian
+· `GET users/students/export` (same filters + optional `sectionId` = actively enrolled there, no paging, max 5000: admission no., class/section/roll, contacts, father/mother/guardian
 with phone + CNIC — feeds the All Students downloads and the Strength report) · `GET users/teachers/create-suggestions?firstName&lastName`
 · `GET users/:id` (adds `parentLinks` for students / `childLinks` for parents) · `GET users/:id/delete-impact`
 · `POST users/admins|teachers|students|parents` (teachers also take `city`, `teachingExperience`, `currentWorkplace`, `cvKey` +

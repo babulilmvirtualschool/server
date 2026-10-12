@@ -223,7 +223,12 @@ export class UsersService {
    * feeds the Student data / Contacts / Family list downloads and the Strength report.
    */
   async exportStudents(query: ExportStudentsDto) {
-    const where = this.buildListWhere({ ...query, role: Role.STUDENT });
+    const where: Prisma.UserWhereInput = {
+      ...this.buildListWhere({ ...query, role: Role.STUDENT }),
+      ...(query.sectionId
+        ? { studentProfile: { enrollments: { some: { sectionId: query.sectionId, status: 'ACTIVE' } } } }
+        : {}),
+    };
     const users = await this.prisma.user.findMany({
       where,
       orderBy: this.listOrderBy(query.sort),
