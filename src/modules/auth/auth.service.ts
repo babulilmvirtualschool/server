@@ -112,7 +112,8 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { passwordHash },
+        // The user chose their own password: the admin-viewable copy is removed.
+        data: { passwordHash, issuedPasswordEnc: null },
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },
@@ -134,7 +135,8 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash },
+      // The user chose their own password: the admin-viewable copy is removed.
+      data: { passwordHash, issuedPasswordEnc: null },
     });
     await this.tokens.revokeAllForUser(userId);
     return { success: true };

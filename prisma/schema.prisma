@@ -37,6 +37,8 @@ model User {
   phone        String?  @unique
   campus       Campus   @default(ONLINE)
   passwordHash String
+  /// Admin-issued password, encrypted (common/utils/password-vault.ts) so admin can view it; cleared when the user sets their own.
+  issuedPasswordEnc String?
   role         Role
   firstName    String
   lastName     String
@@ -152,8 +154,12 @@ model StudentProfile {
   guardianName     String?
   guardianRelation String?
   guardianPhone    String?
+  religion         String?
+  /// Set while the student is discharged (left the school); cleared on re-admission. History in StudentDischarge.
+  dischargedAt     DateTime?
 
   enrollments         StudentEnrollment[]
+  discharges          StudentDischarge[]
   siblingAdmissions   AdmissionApplication[] @relation("AdmissionSibling")
   parents             ParentStudentLink[]
   attendance          AttendanceRecord[]
@@ -1092,6 +1098,7 @@ model AdmissionApplication {
   curriculum     String
   preferredShift String
   studentBFormNo String?
+  religion       String?
 
   /// Set when an admin saves "Pending Enrolled" from Add student; approval uses them.
   gender     Gender?
@@ -1213,4 +1220,23 @@ model ExamPaperQuestion {
 
   @@unique([examPaperId, questionId])
   @@index([questionId])
+}
+
+/// A student leaving the school (discharge) — also the data for the leaving certificate. readmittedAt is set on re-admission.
+model StudentDischarge {
+  id             String   @id @default(cuid())
+  studentId      String
+  student        StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  certificateNo  String   @unique
+  leavingDate    DateTime @db.Date
+  reason         String
+  conduct        String?
+  remarks        String?
+  classAtLeaving String?
+  rollNumber     String?
+  dischargedById String?
+  readmittedAt   DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([studentId])
 }

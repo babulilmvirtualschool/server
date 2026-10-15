@@ -8,6 +8,7 @@ import {
   IsString,
   MinLength,
   ValidateIf,
+  IsIn,
 } from 'class-validator';
 
 export class CreateAdmissionApplicationDto {
@@ -115,4 +116,9 @@ export class CreateAdmissionApplicationDto {
   @IsOptional()
   @IsString()
   studentBFormNo?: string;
+
+  @ApiPropertyOptional({ enum: ['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'] })
+  @IsOptional()
+  @IsIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'])
+  religion?: string;
 }

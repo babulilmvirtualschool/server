@@ -56,6 +56,16 @@ export class ListUsersDto extends PaginationDto {
   @IsOptional()
   @IsBooleanString()
   hasPhoto?: string;
+
+  @ApiPropertyOptional({ enum: ['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'] })
+  @IsOptional()
+  @IsIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'])
+  religion?: string;
+
+  @ApiPropertyOptional({ description: 'Students: false = current students only, true = discharged only (omit for all)' })
+  @IsOptional()
+  @IsBooleanString()
+  discharged?: string;
 }
 
 /** Same filters as the list, without pagination (student exports). */

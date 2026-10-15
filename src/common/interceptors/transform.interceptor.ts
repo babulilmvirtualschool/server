@@ -14,7 +14,7 @@ export interface ApiEnvelope<T> {
 }
 
 /** Fields that must never leave the API, even if a query forgets a safe `select`. */
-const SENSITIVE_KEYS = new Set(['passwordHash', 'tokenHash']);
+const SENSITIVE_KEYS = new Set(['passwordHash', 'tokenHash', 'issuedPasswordEnc']);
 
 /** Returns a copy of plain objects/arrays without sensitive keys; Dates and class instances pass through. */
 export function stripSensitive(value: unknown): unknown {

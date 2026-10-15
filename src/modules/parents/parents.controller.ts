@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -7,6 +7,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { ParentsService } from './parents.service';
+import { SetPhotoDto } from '../users/dto/student-lifecycle.dto';
 
 @ApiTags('parents')
 @ApiBearerAuth()
@@ -14,6 +15,12 @@ import { ParentsService } from './parents.service';
 @Controller()
 export class ParentsController {
   constructor(private readonly svc: ParentsService) {}
+
+  /** Parent: set/remove their child's photo. */
+  @Patch('children/:studentId/photo')
+  setChildPhoto(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string, @Body() dto: SetPhotoDto) {
+    return this.svc.setChildPhoto(user, studentId, dto.avatarKey);
+  }
 
   @Get('me/children')
   myChildren(@CurrentUser() user: AuthUser) {

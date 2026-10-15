@@ -21,6 +21,10 @@ export class UpdateStudentRecordDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) curriculum?: string;
   @ApiPropertyOptional({ enum: ['morning', 'evening'] }) @IsOptional() @IsIn(['morning', 'evening']) preferredShift?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(30) studentBFormNo?: string;
+  @ApiPropertyOptional({ enum: ['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'] })
+  @IsOptional()
+  @IsIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'])
+  religion?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) fatherName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(30) fatherCnic?: string;
