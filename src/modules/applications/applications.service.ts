@@ -138,6 +138,7 @@ export class ApplicationsService {
         curriculum: dto.curriculum.trim(),
         preferredShift: dto.preferredShift.trim().toLowerCase(),
         studentBFormNo: dto.studentBFormNo?.trim() || null,
+        religion: dto.religion ?? null,
       },
     });
   }

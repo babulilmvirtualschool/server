@@ -16,6 +16,10 @@ import {
   TeacherApplicationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AppConfigService } from '../../config/app-config.service';
+import { MediaService } from '../media/media.service';
+import { PasswordVault } from '../../common/utils/password-vault';
+import { DischargeStudentsDto, ListDischargedDto, ReadmitStudentDto } from './dto/student-lifecycle.dto';
 import {
   CreateAdminDto,
   CreateParentDto,
@@ -36,6 +40,7 @@ type StudentRecordFields = {
   guardianName: string | null;
   guardianRelation: string | null;
   guardianPhone: string | null;
+  religion: string | null;
 };
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
 import { currentCampus, runUnscoped } from '../../common/campus/campus-context';
@@ -46,10 +51,44 @@ import {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly vault: PasswordVault;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    cfg: AppConfigService,
+    private readonly media: MediaService,
+  ) {
+    this.vault = new PasswordVault(cfg.jwtRefreshSecret);
+  }
 
   private async hashPassword(raw: string) {
     return bcrypt.hash(raw, 12);
+  }
+
+  /** Password hash + the admin-viewable encrypted copy (every password an admin issues). */
+  private async credentials(raw: string) {
+    return { passwordHash: await this.hashPassword(raw), issuedPasswordEnc: this.vault.seal(raw) };
+  }
+
+  /** Admin: login details incl. the issued password while the user hasn't set their own. */
+  async getLoginDetails(id: string) {
+    const u = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, username: true, email: true, role: true, firstName: true, lastName: true, isActive: true, issuedPasswordEnc: true },
+    });
+    if (!u) throw new NotFoundException('User not found');
+    const password = this.vault.open(u.issuedPasswordEnc);
+    const { issuedPasswordEnc: _enc, ...rest } = u;
+    return { ...rest, password, passwordSetByUser: !u.issuedPasswordEnc };
+  }
+
+  /** Set or remove a user's photo (the key must be the actor's own finished photo upload). */
+  async setPhoto(userId: string, avatarKey: string | null, actorId: string) {
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!u) throw new NotFoundException('User not found');
+    if (avatarKey) await this.media.assertOwnPhoto(avatarKey, actorId);
+    await this.prisma.user.update({ where: { id: userId }, data: { avatarKey } });
+    return { avatarKey };
   }
 
   private userSelect(): Prisma.UserSelect {
@@ -104,6 +143,8 @@ export class UsersService {
         select: {
           id: true,
           admissionNo: true,
+          religion: true,
+          dischargedAt: true,
           parents: {
             where: { relation: 'FATHER' },
             take: 1,
@@ -172,6 +213,15 @@ export class UsersService {
       ...(query.minAge !== undefined || query.maxAge !== undefined ? { dateOfBirth: dob } : {}),
       ...(query.hasPhoto === 'true' ? { avatarKey: { not: null } } : {}),
       ...(query.hasPhoto === 'false' ? { avatarKey: null } : {}),
+      ...(query.religion || query.discharged
+        ? {
+            AND: [
+              ...(query.religion ? [{ studentProfile: { religion: query.religion } }] : []),
+              ...(query.discharged === 'true' ? [{ studentProfile: { dischargedAt: { not: null } } }] : []),
+              ...(query.discharged === 'false' ? [{ studentProfile: { dischargedAt: null } }] : []),
+            ],
+          }
+        : {}),
       ...(query.isActive !== undefined
         ? { isActive: query.isActive === 'true' }
         : {}),
@@ -262,6 +312,7 @@ export class UsersService {
             id: true,
             admissionNo: true,
             address: true,
+            religion: true,
             enrollments: {
               where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
               take: 1,
@@ -305,6 +356,7 @@ export class UsersService {
         studentId: u.studentProfile?.id ?? null,
         admissionNo: u.studentProfile?.admissionNo ?? null,
         name: `${u.firstName} ${u.lastName}`.trim(),
+        religion: u.studentProfile?.religion ?? null,
         gender: u.gender,
         dateOfBirth: u.dateOfBirth,
         phone: u.phone,
@@ -429,13 +481,13 @@ export class UsersService {
     if (dto.allCampuses && !canGrantAllCampuses) {
       throw new ForbiddenException('Only a main admin can give access to both schools.');
     }
-    const passwordHash = await this.hashPassword(dto.password);
+    const creds = await this.credentials(dto.password);
     return this.prisma.user.create({
       data: {
         email: dto.email,
         username: dto.username,
         phone: dto.phone,
-        passwordHash,
+        ...creds,
         role: Role.ADMIN,
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -450,13 +502,13 @@ export class UsersService {
 
   async createTeacher(dto: CreateTeacherDto) {
     this.assertEmailOrUsername(dto);
-    const passwordHash = await this.hashPassword(dto.password);
+    const creds = await this.credentials(dto.password);
     return this.prisma.user.create({
       data: {
         email: dto.email,
         username: dto.username,
         phone: dto.phone,
-        passwordHash,
+        ...creds,
         role: Role.TEACHER,
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -485,13 +537,13 @@ export class UsersService {
 
   async createStudent(dto: CreateStudentDto) {
     this.assertEmailOrUsername(dto);
-    const passwordHash = await this.hashPassword(dto.password);
+    const creds = await this.credentials(dto.password);
     return this.prisma.user.create({
       data: {
         email: dto.email,
         username: dto.username,
         phone: dto.phone,
-        passwordHash,
+        ...creds,
         role: Role.STUDENT,
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -516,14 +568,14 @@ export class UsersService {
 
   async createParent(dto: CreateParentDto) {
     this.assertEmailOrUsername(dto);
-    const passwordHash = await this.hashPassword(dto.password);
+    const creds = await this.credentials(dto.password);
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email: dto.email,
           username: dto.username,
           phone: dto.phone,
-          passwordHash,
+          ...creds,
           role: Role.PARENT,
           firstName: dto.firstName,
           lastName: dto.lastName,
@@ -676,10 +728,9 @@ export class UsersService {
   /** Admin: set account password (bcrypt). */
   async adminSetPassword(id: string, rawPassword: string) {
     await this.findById(id);
-    const passwordHash = await this.hashPassword(rawPassword);
     await this.prisma.user.update({
       where: { id },
-      data: { passwordHash },
+      data: await this.credentials(rawPassword),
       select: { id: true },
     });
     return { success: true as const };
@@ -705,7 +756,8 @@ export class UsersService {
       this.prisma.feePayment.count({ where: { recordedById: id } }),
       this.prisma.salaryPayment.count({ where: { paidById: id } }),
       this.prisma.announcement.count({ where: { authorId: id } }),
-      this.prisma.mediaAsset.count({ where: { uploaderId: id } }),
+      // Photo uploads are removed together with the account, so only other files block a delete.
+      this.prisma.mediaAsset.count({ where: { uploaderId: id, NOT: { purpose: 'AVATAR' } } }),
     ]);
 
     if (gradesGiven > 0) {
@@ -984,7 +1036,11 @@ export class UsersService {
       throw new ConflictException(impact.blockers.join(' '));
     }
     try {
-      await this.prisma.user.delete({ where: { id } });
+      // Photo uploads made by this user would otherwise block the delete (uploader is a required reference).
+      await this.prisma.$transaction([
+        this.prisma.mediaAsset.deleteMany({ where: { uploaderId: id, purpose: 'AVATAR' } }),
+        this.prisma.user.delete({ where: { id } }),
+      ]);
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
       if (code === 'P2003' || code === 'P2014') {
@@ -1166,6 +1222,10 @@ export class UsersService {
       studentPasswordHash: string;
       fatherPasswordHash: string | null;
       motherPasswordHash: string | null;
+      /** Admin-viewable encrypted copies of the issued passwords. */
+      studentPasswordEnc: string;
+      fatherPasswordEnc: string | null;
+      motherPasswordEnc: string | null;
       parentAddressLine: string;
     },
   ): Promise<{ studentUserId: string }> {
@@ -1179,6 +1239,7 @@ export class UsersService {
         email: params.studentEmail,
         phone: params.studentPhone,
         passwordHash: params.studentPasswordHash,
+        issuedPasswordEnc: params.studentPasswordEnc,
         role: Role.STUDENT,
         firstName: params.studentFirstName,
         lastName: params.studentLastName,
@@ -1226,6 +1287,7 @@ export class UsersService {
         username: params.fatherUsername,
         phone: fatherPhone,
         passwordHash: params.fatherPasswordHash!,
+        issuedPasswordEnc: params.fatherPasswordEnc,
         role: Role.PARENT,
         firstName: ff.firstName,
         lastName: ff.lastName,
@@ -1245,6 +1307,7 @@ export class UsersService {
         username: params.motherUsername,
         phone: motherPhone,
         passwordHash: params.motherPasswordHash!,
+        issuedPasswordEnc: params.motherPasswordEnc,
         role: Role.PARENT,
         firstName: mf.firstName,
         lastName: mf.lastName,
@@ -1348,6 +1411,9 @@ export class UsersService {
           studentPasswordHash,
           fatherPasswordHash,
           motherPasswordHash,
+          studentPasswordEnc: this.vault.seal(dto.studentPassword),
+          fatherPasswordEnc: sibling ? null : this.vault.seal(dto.fatherPassword),
+          motherPasswordEnc: sibling ? null : this.vault.seal(dto.motherPassword),
           parentAddressLine: city,
         });
         if (enrollTo) {
@@ -1401,6 +1467,7 @@ export class UsersService {
 
   /** Admission details stored in their own StudentProfile fields. */
   private studentRecordFrom(d: {
+    religion?: string | null;
     gradeLevel?: string | null;
     curriculum?: string | null;
     preferredShift?: string | null;
@@ -1418,6 +1485,7 @@ export class UsersService {
       guardianName: v(d.guardianName),
       guardianRelation: v(d.guardianRelation),
       guardianPhone: v(d.guardianPhone),
+      religion: v(d.religion),
     };
   }
 
@@ -1540,6 +1608,7 @@ export class UsersService {
           guardianName: v(dto.guardianName),
           guardianRelation: v(dto.guardianRelation),
           guardianPhone: v(dto.guardianPhone),
+          religion: v(dto.religion),
         },
       });
       for (const [parent, nameRaw, cnic, ph] of [
@@ -1654,6 +1723,9 @@ export class UsersService {
             studentPasswordHash,
             fatherPasswordHash,
             motherPasswordHash,
+            studentPasswordEnc: this.vault.seal(accounts.studentPassword),
+            fatherPasswordEnc: sibling ? null : this.vault.seal(accounts.fatherPassword),
+            motherPasswordEnc: sibling ? null : this.vault.seal(accounts.motherPassword),
             parentAddressLine: city,
           },
         );
@@ -1857,7 +1929,7 @@ export class UsersService {
       phone: app.phone,
     });
 
-    const passwordHash = await this.hashPassword(accounts.teacherPassword.trim());
+    const creds = await this.credentials(accounts.teacherPassword.trim());
     const tu = accounts.teacherUsername.trim().toLowerCase();
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -1866,7 +1938,7 @@ export class UsersService {
             email: app.email.trim().toLowerCase(),
             username: tu,
             phone: app.phone.trim(),
-            passwordHash,
+            ...creds,
             role: Role.TEACHER,
             firstName: app.firstName.trim(),
             lastName: app.lastName.trim(),
@@ -1911,4 +1983,198 @@ export class UsersService {
 
     return { accountsProvisioned: true };
   }
+
+  // ---------------- Discharge (student left the school) / re-admission / leaving certificate ----------------
+
+  /** Leaving-certificate number per school: ON-LC-2026-0001 / PH-LC-2026-0001. */
+  private async nextCertificateNo(tx: Prisma.TransactionClient): Promise<{ prefix: string; next: number }> {
+    const prefix = `${(currentCampus() ?? Campus.ONLINE) === Campus.PHYSICAL ? 'PH' : 'ON'}-LC-${new Date().getFullYear()}-`;
+    const last = await runUnscoped(() =>
+      tx.studentDischarge.findFirst({ where: { certificateNo: { startsWith: prefix } }, orderBy: { certificateNo: 'desc' }, select: { certificateNo: true } }),
+    );
+    return { prefix, next: (last ? parseInt(last.certificateNo.slice(prefix.length), 10) || 0 : 0) + 1 };
+  }
+
+  /**
+   * Discharge students: record leaving date/reason (+ certificate data), block the student's login, withdraw the
+   * active enrollment, and block parents who have no other current child at school.
+   */
+  async dischargeStudents(dto: DischargeStudentsDto, actorId: string) {
+    const ids = [...new Set(dto.studentIds)];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, role: Role.STUDENT },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        studentProfile: {
+          select: {
+            id: true,
+            dischargedAt: true,
+            parents: { select: { parentId: true } },
+            enrollments: {
+              where: { status: 'ACTIVE' },
+              select: { id: true, rollNumber: true, academicYear: { select: { isCurrent: true } }, section: { select: { name: true, class: { select: { name: true } } } } },
+            },
+          },
+        },
+      },
+    });
+    if (users.length !== ids.length || users.some((u) => !u.studentProfile)) throw new NotFoundException('Some students were not found');
+    const already = users.filter((u) => u.studentProfile!.dischargedAt);
+    if (already.length) {
+      throw new ConflictException(`Already discharged: ${already.map((u) => `${u.firstName} ${u.lastName}`).join(', ')}`);
+    }
+    const leavingDate = new Date(`${dto.leavingDate.slice(0, 10)}T00:00:00.000Z`);
+    const parentIds = [...new Set(users.flatMap((u) => u.studentProfile!.parents.map((p) => p.parentId)))];
+
+    const records = await this.prisma.$transaction(
+      async (tx) => {
+        const cert = await this.nextCertificateNo(tx);
+        const out: Prisma.StudentDischargeGetPayload<object>[] = [];
+        for (const u of users) {
+          const sp = u.studentProfile!;
+          const current = sp.enrollments.find((e) => e.academicYear.isCurrent) ?? sp.enrollments[0];
+          out.push(
+            await tx.studentDischarge.create({
+              data: {
+                studentId: sp.id,
+                certificateNo: `${cert.prefix}${String(cert.next++).padStart(4, '0')}`,
+                leavingDate,
+                reason: dto.reason.trim(),
+                conduct: dto.conduct?.trim() || null,
+                remarks: dto.remarks?.trim() || null,
+                classAtLeaving: current ? [current.section.class.name, current.section.name].filter(Boolean).join(' · ') : null,
+                rollNumber: current?.rollNumber ?? null,
+                dischargedById: actorId,
+              },
+            }),
+          );
+          await tx.studentProfile.update({ where: { id: sp.id }, data: { dischargedAt: leavingDate } });
+          await tx.user.update({ where: { id: u.id }, data: { isActive: false } });
+          await tx.studentEnrollment.updateMany({ where: { studentId: sp.id, status: 'ACTIVE' }, data: { status: 'WITHDRAWN' } });
+          await tx.refreshToken.updateMany({ where: { userId: u.id, revokedAt: null }, data: { revokedAt: new Date() } });
+        }
+        // Parents with no other current child at school lose portal access too.
+        if (parentIds.length) {
+          const parents = await tx.parentProfile.findMany({
+            where: { id: { in: parentIds } },
+            select: { userId: true, children: { select: { student: { select: { dischargedAt: true } } } } },
+          });
+          for (const p of parents) {
+            if (p.children.every((c) => c.student.dischargedAt)) {
+              await tx.user.update({ where: { id: p.userId }, data: { isActive: false } });
+              await tx.refreshToken.updateMany({ where: { userId: p.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+            }
+          }
+        }
+        return out;
+      },
+      { timeout: 60_000, maxWait: 10_000 },
+    );
+    return { discharged: records.length, records };
+  }
+
+  /** Re-admit a discharged student into a class/section + roll; student and parents can log in again. */
+  async readmitStudent(userId: string, dto: ReadmitStudentDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, studentProfile: { select: { id: true, dischargedAt: true, parents: { select: { parent: { select: { userId: true } } } } } } },
+    });
+    if (!user || user.role !== Role.STUDENT || !user.studentProfile) throw new NotFoundException('Student not found');
+    const sp = user.studentProfile;
+    if (!sp.dischargedAt) throw new BadRequestException('This student is not discharged.');
+    const rollNumber = dto.rollNumber.trim();
+    const section = await this.prisma.section.findUnique({ where: { id: dto.sectionId }, include: { class: true } });
+    if (!section) throw new BadRequestException({ message: 'Class/section not found', fields: { sectionId: 'Not found' } });
+    if (!rollNumber) throw new BadRequestException({ message: 'Enter a roll number', fields: { rollNumber: 'Required' } });
+    const taken = await this.prisma.studentEnrollment.findFirst({ where: { sectionId: section.id, rollNumber, NOT: { studentId: sp.id } } });
+    if (taken) {
+      throw new ConflictException({ message: `Roll number ${rollNumber} is already used in this section`, fields: { rollNumber: 'Already used in this section' } });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.studentProfile.update({ where: { id: sp.id }, data: { dischargedAt: null } });
+      await tx.user.update({ where: { id: user.id }, data: { isActive: true } });
+      const open = await tx.studentDischarge.findFirst({ where: { studentId: sp.id, readmittedAt: null }, orderBy: { createdAt: 'desc' } });
+      if (open) await tx.studentDischarge.update({ where: { id: open.id }, data: { readmittedAt: new Date() } });
+      for (const l of sp.parents) await tx.user.update({ where: { id: l.parent.userId }, data: { isActive: true } });
+      const existing = await tx.studentEnrollment.findFirst({ where: { studentId: sp.id, academicYearId: section.class.academicYearId } });
+      if (existing) {
+        await tx.studentEnrollment.update({ where: { id: existing.id }, data: { sectionId: section.id, rollNumber, status: 'ACTIVE' } });
+      } else {
+        await tx.studentEnrollment.create({ data: { studentId: sp.id, sectionId: section.id, academicYearId: section.class.academicYearId, rollNumber } });
+      }
+    });
+    return this.findById(userId);
+  }
+
+  /** Discharged students (newest first) with their latest discharge record. */
+  async listDischarged(query: ListDischargedDto) {
+    const { skip, take, page, limit } = getSkipTake(query);
+    const where: Prisma.UserWhereInput = {
+      role: Role.STUDENT,
+      studentProfile: { dischargedAt: { not: null } },
+      ...(query.search
+        ? {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' } },
+              { lastName: { contains: query.search, mode: 'insensitive' } },
+              { studentProfile: { admissionNo: { contains: query.search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+    const [total, data] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { studentProfile: { dischargedAt: 'desc' } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          avatarKey: true,
+          dateOfBirth: true,
+          studentProfile: {
+            select: {
+              id: true,
+              admissionNo: true,
+              admissionDate: true,
+              dischargedAt: true,
+              parents: { where: { relation: 'FATHER' }, take: 1, select: { parent: { select: { user: { select: { firstName: true, lastName: true } } } } } },
+              discharges: { orderBy: { createdAt: 'desc' }, take: 1 },
+            },
+          },
+        },
+      }),
+    ]);
+    return paginate(data, total, page, limit);
+  }
+
+  /** All discharge records of a student (leaving certificates), newest first, with the certificate fields. */
+  async studentDischarges(userId: string) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        dateOfBirth: true,
+        studentProfile: {
+          select: {
+            admissionNo: true,
+            admissionDate: true,
+            religion: true,
+            parents: { where: { relation: 'FATHER' }, take: 1, select: { parent: { select: { user: { select: { firstName: true, lastName: true } } } } } },
+            discharges: { orderBy: { createdAt: 'desc' } },
+          },
+        },
+      },
+    });
+    if (!u?.studentProfile) throw new NotFoundException('Student not found');
+    return u;
+  }
+
 }

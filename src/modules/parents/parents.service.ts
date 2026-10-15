@@ -5,12 +5,26 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MediaService } from '../media/media.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { publicUserSelect } from '../../common/utils/public-user.select';
 
 @Injectable()
 export class ParentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
+
+  /** Parent: set/remove their child's photo (own upload only). */
+  async setChildPhoto(user: AuthUser, studentId: string, avatarKey: string | null) {
+    await this.ensureParentOf(user, studentId);
+    const sp = await this.prisma.studentProfile.findUnique({ where: { id: studentId }, select: { userId: true } });
+    if (!sp) throw new ForbiddenException();
+    if (avatarKey) await this.media.assertOwnPhoto(avatarKey, user.id);
+    await this.prisma.user.update({ where: { id: sp.userId }, data: { avatarKey } });
+    return { avatarKey };
+  }
 
   private async ensureParentOf(user: AuthUser, studentId: string) {
     if (user.role !== Role.PARENT) throw new ForbiddenException();

@@ -75,6 +75,11 @@ export class CreateStudentWithParentsDto {
   @IsString()
   studentBFormNo?: string;
 
+  @ApiPropertyOptional({ enum: ['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'] })
+  @IsOptional()
+  @IsIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'])
+  religion?: string;
+
   @ApiProperty()
   @ValidateIf((o) => !o.siblingOfStudentId)
   @IsString()

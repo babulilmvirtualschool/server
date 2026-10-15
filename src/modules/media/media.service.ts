@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { MediaPurpose } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -78,6 +78,20 @@ export class MediaService {
       where: { key: dto.key },
       data: { finalized: true },
     });
+  }
+
+  /** Photos: must be the uploader's own finished AVATAR upload, JPG/PNG/WebP, at most 5 MB. */
+  async assertOwnPhoto(key: string, uploaderId: string) {
+    const asset = await this.prisma.mediaAsset.findUnique({ where: { key } });
+    if (!asset || asset.uploaderId !== uploaderId || !asset.finalized || asset.purpose !== MediaPurpose.AVATAR) {
+      throw new BadRequestException({ message: 'Upload the photo again.', fields: { avatarKey: 'Invalid photo upload' } });
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
+      throw new BadRequestException({ message: 'The photo must be a JPG, PNG or WebP image.', fields: { avatarKey: 'Wrong file type' } });
+    }
+    if (asset.size > 5 * 1024 * 1024) {
+      throw new BadRequestException({ message: 'The photo must be 5 MB or smaller.', fields: { avatarKey: 'Too large' } });
+    }
   }
 
   async presignDownload(key: string) {

@@ -25,6 +25,7 @@ import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.d
 import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateStudentRecordDto } from './dto/update-student-record.dto';
+import { DischargeStudentsDto, ListDischargedDto, ReadmitStudentDto, SetPhotoDto } from './dto/student-lifecycle.dto';
 import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
 import { UsersService } from './users.service';
 
@@ -38,6 +39,54 @@ export class UsersController {
   @Get()
   list(@Query() q: ListUsersDto) {
     return this.users.list(q);
+  }
+
+  /** Student: set/remove own photo. Declared before ':id' routes. */
+  @Roles(Role.STUDENT)
+  @Patch('me/photo')
+  setOwnPhoto(@CurrentUser() user: AuthUser, @Body() dto: SetPhotoDto) {
+    return this.users.setPhoto(user.id, dto.avatarKey, user.id);
+  }
+
+  /** Discharged students (left the school), newest first. */
+  @Roles(Role.ADMIN)
+  @Get('students/discharged')
+  listDischarged(@Query() q: ListDischargedDto) {
+    return this.users.listDischarged(q);
+  }
+
+  /** Discharge students: leaving date + reason; logins blocked automatically. */
+  @Roles(Role.ADMIN)
+  @Post('students/discharge')
+  dischargeStudents(@Body() dto: DischargeStudentsDto, @CurrentUser() user: AuthUser) {
+    return this.users.dischargeStudents(dto, user.id);
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('students/:id/readmit')
+  readmitStudent(@Param('id') id: string, @Body() dto: ReadmitStudentDto) {
+    return this.users.readmitStudent(id, dto);
+  }
+
+  /** Discharge records = leaving certificates. */
+  @Roles(Role.ADMIN)
+  @Get('students/:id/discharges')
+  studentDischarges(@Param('id') id: string) {
+    return this.users.studentDischarges(id);
+  }
+
+  /** Admin: username/email + the issued password while the user hasn't changed it. */
+  @Roles(Role.ADMIN)
+  @Get(':id/login')
+  loginDetails(@Param('id') id: string) {
+    return this.users.getLoginDetails(id);
+  }
+
+  /** Admin: set/remove anyone's photo. */
+  @Roles(Role.ADMIN)
+  @Patch(':id/photo')
+  setPhoto(@Param('id') id: string, @Body() dto: SetPhotoDto, @CurrentUser() user: AuthUser) {
+    return this.users.setPhoto(id, dto.avatarKey, user.id);
   }
 
   /** Edit student: the full record (student, admission details, parents, class/section). */

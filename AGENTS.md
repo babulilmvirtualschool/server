@@ -91,7 +91,7 @@ Patterns to copy:
 - Cross-module reuse: export the service and import the module (e.g. `ApplicationsModule` imports `UsersModule`).
 - **Never `include: { user: true }`** — it returns `passwordHash`. Use `user: { select: publicUserSelect }`
   (`common/utils/public-user.select.ts`, every column except the hash) or a narrower explicit select.
-  `TransformInterceptor` also strips `passwordHash`/`tokenHash` from every response as a safety net — don't rely on it alone.
+  `TransformInterceptor` also strips `passwordHash`/`tokenHash`/`issuedPasswordEnc` from every response as a safety net — don't rely on it alone.
 - Usernames: `^[a-z0-9][a-z0-9._]{2,31}$/i`, stored lower-case. The regex is duplicated in
   `common/utils/username.util.ts`, `users/dto/create-student-with-parents.dto.ts`,
   `applications/dto/update-admission-status.dto.ts`, `update-teacher-status.dto.ts` — keep in sync.
@@ -129,7 +129,14 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (13) in `prisma/migrations/` — from `20260419003326_initiate` to `20261008164554_exam_question_bank`.
+- Migrations (19) in `prisma/migrations/` — from `20260419003326_initiate` to `20261015063852_religion_photo_passwords_discharge`.
+- Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
+  `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
+  admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
+  stored copies unreadable, logins are unaffected); cleared when the user changes or resets their own password. `StudentProfile.dischargedAt`
+  + `StudentDischarge` (one row per leaving: certificate no. `ON-/PH-LC-<year>-0001`, leaving date, reason, conduct, remarks, class/roll at
+  leaving, `readmittedAt`). Discharge blocks the student (isActive=false, refresh tokens revoked, ACTIVE enrollment WITHDRAWN) and each parent
+  with no other current child; re-admission reverses it and enrolls into a section + roll. Deleting a user also deletes the AVATAR uploads they made.
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -172,6 +179,13 @@ student's links (name/phone/CNIC), current-year class/section + roll created or 
 sibling's father/mother are linked instead of creating parent accounts (no parent names/logins needed); `GET users/:id` adds `siblings`.
 Admission details live in `StudentProfile.appliedClass/curriculum/preferredShift/bFormNo/guardian*` (migration
 `20261012114324_student_record_fields_siblings` moved them out of `address`, which now holds the city).
+· `GET users/:id/login` (username/email/role/active + `password` = the issued password while the user hasn't set their own, else null with
+`passwordSetByUser: true`) · `PATCH users/:id/photo` A and `PATCH users/me/photo` S (`{avatarKey | null}`; the key must be the caller's own
+finalized AVATAR upload, jpeg/png/webp ≤ 5 MB) · `POST users/students/discharge` (`{studentIds: User ids (1–200), leavingDate, reason, conduct?,
+remarks?}`; 409 if one is already discharged) · `GET users/students/discharged?search&page` (paginated, latest leaving record + father)
+· `POST users/students/:id/readmit` (`{sectionId, rollNumber}`, current year; roll clash 409) · `GET users/students/:id/discharges`
+(leaving-certificate data). `GET users` / export also take `religion` and `discharged=true|false`; every admin-issued password
+(create admin/teacher/student/parent, with-parents, approvals, `PATCH users/:id/password`) is stored viewable.
 · `POST users/parents/:userId/children` · `DELETE users/parents/:userId/children/:linkId` · `PATCH users/:id`
 · `PATCH users/:id/password` · `POST users/:id/activate|deactivate` · `DELETE users/:id` (blocked if impact has blockers → 409).
 "Staff" in the web UI = users with role ADMIN.
@@ -276,7 +290,7 @@ active sections); P: `GET children/:studentId/diary?date` (link verified).
 **media** — auth: `POST media/presign-upload` (`{purpose: MediaPurpose, mimeType, size ≤500MB, originalName?}` → key `tmp/<prefix>/<userId>/<ts>-<id><ext>`),
 `POST media/finalize` (`{key}`; own uploads, A any), `GET media/presign-download?key=`.
 
-**parents** (P, class-level) — `GET me/children` (links with student, user, enrollments), `GET children/:studentId/attendance?from&to`,
+**parents** (P, class-level) — `GET me/children` (links with student, user, enrollments), `PATCH children/:studentId/photo` (own AVATAR upload, link verified), `GET children/:studentId/attendance?from&to`,
 `GET children/:studentId/leaves`, `GET children/:studentId/results`, `GET children/:studentId/invoices`. `studentId` = StudentProfile.id; link verified.
 
 ## 8. Deployment

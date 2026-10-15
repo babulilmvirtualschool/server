@@ -73,6 +73,7 @@ const VIA: Record<string, Scope> = {
   Notification: (c, u) => ({ user: userScope(c, u) }),
   DiaryEntry: course,
   BankQuestion: (c) => ({ subject: { campus: c } }),
+  StudentDischarge: student,
 };
 
 /**
