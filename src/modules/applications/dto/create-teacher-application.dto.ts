@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Campus } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class CreateTeacherApplicationDto {
   @ApiPropertyOptional({
@@ -73,4 +73,10 @@ export class CreateTeacherApplicationDto {
   @IsOptional()
   @IsString()
   cvOriginalName?: string;
+
+  @ApiPropertyOptional({ description: 'Optional photo: key from POST applications/uploads/presign (kind TEACHER_PHOTO).' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^applications\/uploads\/teacher-photo\/[\w.-]+$/, { message: 'Invalid photo upload' })
+  photoKey?: string;
 }

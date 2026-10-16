@@ -13,6 +13,7 @@ import { ListTeacherApplicationsDto } from './dto/list-teacher-applications.dto'
 import { UpdateAdmissionStatusDto } from './dto/update-admission-status.dto';
 import { UpdateTeacherApplicationStatusDto } from './dto/update-teacher-status.dto';
 import { TeacherCvPresignDto } from './dto/teacher-cv-presign.dto';
+import { ApplicationUploadPresignDto } from './dto/application-upload.dto';
 
 @ApiTags('applications')
 @Controller('applications')
@@ -31,6 +32,13 @@ export class ApplicationsController {
   @Post('teachers/cv-presign')
   presignTeacherCv(@Body() dto: TeacherCvPresignDto) {
     return this.applications.presignTeacherCv(dto);
+  }
+
+  /** Public — presign a website form upload (admission documents, student or teacher photo). */
+  @Public()
+  @Post('uploads/presign')
+  presignUpload(@Body() dto: ApplicationUploadPresignDto) {
+    return this.applications.presignApplicationUpload(dto);
   }
 
   /** Public — website /apply faculty form */

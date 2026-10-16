@@ -1742,6 +1742,20 @@ export class UsersService {
           });
         }
 
+        // Website uploads: the photo becomes the student's photo, the documents go on the student record.
+        const docs = Array.isArray(app.documents) ? (app.documents as { kind: string; key: string; name: string | null }[]) : [];
+        const photo = docs.find((d) => d.kind === 'STUDENT_PHOTO');
+        const files = docs.filter((d) => d.kind !== 'STUDENT_PHOTO');
+        if (docs.length) {
+          await tx.user.update({
+            where: { id: studentUserId },
+            data: {
+              ...(photo ? { avatarKey: photo.key } : {}),
+              ...(files.length ? { studentProfile: { update: { documents: files } } } : {}),
+            },
+          });
+        }
+
         await tx.admissionApplication.update({
           where: { id: app.id },
           data: {
@@ -1944,6 +1958,7 @@ export class UsersService {
             lastName: app.lastName.trim(),
             gender: app.gender ?? null,
             dateOfBirth: app.dateOfBirth ?? null,
+            avatarKey: app.photoKey ?? null,
             teacherProfile: {
               create: {
                 employeeCode: accounts.employeeCode.trim(),

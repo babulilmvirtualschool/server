@@ -155,6 +155,8 @@ model StudentProfile {
   guardianRelation String?
   guardianPhone    String?
   religion         String?
+  /// Admission documents [{kind, key, name}] copied from the approved website application.
+  documents        Json?
   /// Set while the student is discharged (left the school); cleared on re-admission. History in StudentDischarge.
   dischargedAt     DateTime?
 
@@ -1099,6 +1101,8 @@ model AdmissionApplication {
   preferredShift String
   studentBFormNo String?
   religion       String?
+  /// Website uploads [{kind, key, name}] (student photo, B-Form, leaving certificate, parents' CNIC front/back); approval copies them to the student.
+  documents      Json?
 
   /// Set when an admin saves "Pending Enrolled" from Add student; approval uses them.
   gender     Gender?
@@ -1151,6 +1155,8 @@ model TeacherApplication {
   cvOriginalName String?
   /// R2 object key when CV was uploaded via public presign.
   cvKey          String?
+  /// Optional photo from the website faculty form; becomes the teacher's photo on approval.
+  photoKey       String?
 
   /// Set when an admin saves "Pending Enrolled" from Add teacher; approval copies them to the account.
   gender      Gender?

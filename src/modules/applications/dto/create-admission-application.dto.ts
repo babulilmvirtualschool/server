@@ -1,6 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Campus } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { AdmissionDocumentDto } from './application-upload.dto';
 import {
+  ArrayMaxSize,
+  IsArray,
+  ValidateNested,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -121,4 +126,12 @@ export class CreateAdmissionApplicationDto {
   @IsOptional()
   @IsIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Other'])
   religion?: string;
+
+  @ApiPropertyOptional({ type: [AdmissionDocumentDto], description: 'Optional uploads (one per kind) from POST applications/uploads/presign.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ValidateNested({ each: true })
+  @Type(() => AdmissionDocumentDto)
+  documents?: AdmissionDocumentDto[];
 }

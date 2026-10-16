@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (19) in `prisma/migrations/` — from `20260419003326_initiate` to `20261015063852_religion_photo_passwords_discharge`.
+- Migrations (20) in `prisma/migrations/` — from `20260419003326_initiate` to `20261016112221_application_uploads_documents_photos`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -137,6 +137,10 @@ Patterns to copy:
   + `StudentDischarge` (one row per leaving: certificate no. `ON-/PH-LC-<year>-0001`, leaving date, reason, conduct, remarks, class/roll at
   leaving, `readmittedAt`). Discharge blocks the student (isActive=false, refresh tokens revoked, ACTIVE enrollment WITHDRAWN) and each parent
   with no other current child; re-admission reverses it and enrolls into a section + roll. Deleting a user also deletes the AVATAR uploads they made.
+- Website uploads (2026-10-16, migration `20261016112221_application_uploads_documents_photos`, additive): `AdmissionApplication.documents` /
+  `StudentProfile.documents` (Json `[{kind, key, name}]`, kinds STUDENT_PHOTO, B_FORM, LEAVING_CERTIFICATE, FATHER/MOTHER_CNIC_FRONT/BACK) and
+  `TeacherApplication.photoKey`. Files live under `applications/uploads/<kind>/` (not MediaAssets, like the CV); approval sets the student's
+  `avatarKey` from STUDENT_PHOTO and copies the other documents to `StudentProfile.documents`; faculty approval sets the teacher's `avatarKey`.
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -190,8 +194,9 @@ remarks?}`; 409 if one is already discharged) · `GET users/students/discharged?
 · `PATCH users/:id/password` · `POST users/:id/activate|deactivate` · `DELETE users/:id` (blocked if impact has blockers → 409).
 "Staff" in the web UI = users with role ADMIN.
 
-**applications** — public: `POST applications/admissions`, `POST applications/teachers/cv-presign` (pdf/doc/docx ≤10 MB),
-`POST applications/teachers`. A: `GET applications/admissions?status&search&page` · `GET applications/admissions/:id/username-suggestions`
+**applications** — public: `POST applications/admissions` (optional `documents`, one per kind, keys from their own upload folder),
+`POST applications/uploads/presign` (`{kind, mimeType, size, originalName?}`; photos jpeg/png/webp ≤5 MB, documents also pdf ≤10 MB),
+`POST applications/teachers/cv-presign` (pdf/doc/docx ≤10 MB), `POST applications/teachers` (optional `photoKey` from the teacher-photo folder). A: `GET applications/admissions?status&search&page` · `GET applications/admissions/:id/username-suggestions`
 · `POST applications/admissions/manual` (Add student → "Pending Enrolled": the online fields + `gender`, `bloodGroup`, `sectionId` + `rollNumber`;
 father/mother names and date of birth required; class/roll validated like Add student; no accounts yet)
 · `PATCH applications/admissions/:id` (`{status, studentUsername, fatherUsername, motherUsername, student/father/motherPassword, studentEmail?}`;

@@ -25,6 +25,17 @@ import {
   TeacherCvPresignDto,
 } from './dto/teacher-cv-presign.dto';
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
+import {
+  AdmissionDocumentDto,
+  ApplicationUploadPresignDto,
+  MAX_DOCUMENT_BYTES,
+  MAX_PHOTO_BYTES,
+  PHOTO_KINDS,
+  uploadKeyPrefix,
+} from './dto/application-upload.dto';
+
+const PHOTO_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const DOCUMENT_MIME = new Set([...PHOTO_MIME, 'application/pdf']);
 
 const CV_KEY_PREFIX = 'applications/teacher-cv/';
 const ALLOWED_CV_MIME = new Set([
@@ -92,6 +103,32 @@ export class ApplicationsService {
     };
   }
 
+  /** Public presign for website form uploads (admission documents, student/teacher photo); browser PUTs to R2. */
+  async presignApplicationUpload(dto: ApplicationUploadPresignDto) {
+    const photo = PHOTO_KINDS.includes(dto.kind);
+    if (!(photo ? PHOTO_MIME : DOCUMENT_MIME).has(dto.mimeType)) {
+      throw new BadRequestException(photo ? 'Photo must be JPG, PNG or WebP' : 'File must be JPG, PNG, WebP or PDF');
+    }
+    if (dto.size > (photo ? MAX_PHOTO_BYTES : MAX_DOCUMENT_BYTES)) {
+      throw new BadRequestException(photo ? 'Photo must be 5 MB or smaller' : 'File must be 10 MB or smaller');
+    }
+    const key = `${uploadKeyPrefix(dto.kind)}${Date.now()}-${nanoid(10)}${this.sanitizeExt(dto.originalName)}`;
+    const uploadUrl = await this.r2.presignPut({ key, contentType: dto.mimeType });
+    return { key, uploadUrl, expiresIn: this.r2.presignExpiresSeconds };
+  }
+
+  /** One file per kind, each key from that kind's upload folder. */
+  private admissionDocuments(docs?: AdmissionDocumentDto[]) {
+    if (!docs?.length) return undefined;
+    const seen = new Set<string>();
+    for (const d of docs) {
+      if (seen.has(d.kind)) throw new BadRequestException(`Only one file per document (${d.kind})`);
+      seen.add(d.kind);
+      if (!d.key.startsWith(uploadKeyPrefix(d.kind))) throw new BadRequestException(`Invalid upload for ${d.kind}`);
+    }
+    return docs.map((d) => ({ kind: d.kind, key: d.key, name: d.name?.trim() || null }));
+  }
+
   /** Admin download link for a stored teacher application CV. */
   async presignTeacherCvDownload(applicationId: string) {
     const app = await this.prisma.teacherApplication.findUnique({
@@ -139,6 +176,7 @@ export class ApplicationsService {
         preferredShift: dto.preferredShift.trim().toLowerCase(),
         studentBFormNo: dto.studentBFormNo?.trim() || null,
         religion: dto.religion ?? null,
+        documents: this.admissionDocuments(dto.documents),
       },
     });
   }
@@ -203,6 +241,7 @@ export class ApplicationsService {
         currentWorkplace: dto.currentWorkplace?.trim() || null,
         cvKey,
         cvOriginalName: dto.cvOriginalName?.trim() || null,
+        photoKey: dto.photoKey ?? null,
       },
     });
   }
