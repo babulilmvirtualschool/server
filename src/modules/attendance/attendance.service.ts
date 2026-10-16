@@ -471,6 +471,65 @@ export class AttendanceService {
     );
   }
 
+  /**
+   * Admin — whole-day (class) attendance per student for a period: counts per status and the attendance %
+   * (Present + Late ÷ days marked), with class/roll and parent phones for the WhatsApp % alert.
+   */
+  async dailySummary(q: AttendanceRecordsQueryDto) {
+    const grouped = await this.prisma.attendanceRecord.groupBy({
+      by: ['studentId', 'status'],
+      where: {
+        date: { gte: parseDateOnly(q.from), lte: parseDateOnly(q.to) },
+        courseId: null,
+        ...(q.sectionId ? { sectionId: q.sectionId } : {}),
+        ...(q.studentId ? { studentId: q.studentId } : {}),
+      },
+      _count: { _all: true },
+    });
+    const ids = [...new Set(grouped.map((g) => g.studentId))];
+    const students = await this.prisma.studentProfile.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        admissionNo: true,
+        user: { select: { firstName: true, lastName: true } },
+        enrollments: {
+          where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
+          take: 1,
+          select: { rollNumber: true, section: { select: { id: true, name: true, class: { select: { name: true } } } } },
+        },
+        parents: {
+          where: { relation: { in: ['FATHER', 'MOTHER'] } },
+          select: { relation: true, parent: { select: { user: { select: { firstName: true, lastName: true, phone: true } } } } },
+        },
+      },
+    });
+    return students
+      .map((s) => {
+        const counts = { PRESENT: 0, ABSENT: 0, LATE: 0, EXCUSED: 0 } as Record<string, number>;
+        for (const g of grouped) if (g.studentId === s.id) counts[g.status] = (counts[g.status] ?? 0) + g._count._all;
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
+        const e = s.enrollments[0];
+        const parent = (rel: string) => {
+          const u = s.parents.find((p) => p.relation === rel)?.parent.user;
+          return u ? { name: [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' '), phone: u.phone } : null;
+        };
+        return {
+          studentId: s.id,
+          admissionNo: s.admissionNo,
+          name: `${s.user.firstName} ${s.user.lastName}`.trim(),
+          rollNumber: e?.rollNumber ?? null,
+          section: e ? { id: e.section.id, label: `${e.section.class.name} · ${e.section.name}` } : null,
+          counts,
+          total,
+          percent: total ? Math.round(((counts.PRESENT + counts.LATE) / total) * 1000) / 10 : null,
+          father: parent('FATHER'),
+          mother: parent('MOTHER'),
+        };
+      })
+      .sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101) || a.name.localeCompare(b.name));
+  }
+
   /** Admin — student attendance records for the combined report (max 5000, oldest first). */
   async recordsForReport(q: AttendanceRecordsQueryDto) {
     const where = {

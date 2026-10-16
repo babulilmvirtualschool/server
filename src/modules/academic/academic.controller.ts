@@ -28,6 +28,7 @@ import { CreateCourseDto, UpdateCourseDto } from './dto/course.dto';
 import {
   CreateEnrollmentDto,
   ShiftEnrollmentsDto,
+  PromoteStudentsDto,
   UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
 
@@ -203,6 +204,12 @@ export class AcademicController {
   ) {
     return this.svc.listEnrollments(sectionId, academicYearId, studentId);
   }
+  @Roles(Role.ADMIN)
+  @Post('enrollments/promote')
+  promoteStudents(@Body() dto: PromoteStudentsDto) {
+    return this.svc.promoteStudents(dto);
+  }
+
   @Roles(Role.ADMIN)
   @Post('enrollments/shift')
   shiftEnrollments(@Body() dto: ShiftEnrollmentsDto) {

@@ -145,6 +145,7 @@ export class UsersService {
           admissionNo: true,
           religion: true,
           dischargedAt: true,
+          graduatedAt: true,
           parents: {
             where: { relation: 'FATHER' },
             take: 1,

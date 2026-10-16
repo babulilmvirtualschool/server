@@ -17,6 +17,7 @@ const DIRECT = new Set([
   'AdmissionApplication',
   'TeacherApplication',
   'Announcement',
+  'MessageTemplate',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;

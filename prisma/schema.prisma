@@ -157,6 +157,8 @@ model StudentProfile {
   religion         String?
   /// Admission documents [{kind, key, name}] copied from the approved website application.
   documents        Json?
+  /// Set when the student finished the final class (Promote → Graduated).
+  graduatedAt      DateTime?
   /// Set while the student is discharged (left the school); cleared on re-admission. History in StudentDischarge.
   dischargedAt     DateTime?
 
@@ -1170,6 +1172,27 @@ model TeacherApplication {
   @@index([createdAt(sort: Desc)])
   @@index([email])
   @@index([status])
+}
+
+// WhatsApp message templates (click-to-chat text) per school: attendance notices, % alert, general notice.
+enum MessageTemplateKind {
+  ABSENCE
+  LATE
+  LEAVE
+  ATTENDANCE_ALERT
+  GENERAL_NOTICE
+}
+
+model MessageTemplate {
+  id        String              @id @default(cuid())
+  campus    Campus              @default(ONLINE)
+  kind      MessageTemplateKind
+  name      String
+  body      String
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([campus, kind])
 }
 
 // Daily diary: one entry per course (subject + section) per day, written by the course teacher

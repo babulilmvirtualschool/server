@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (20) in `prisma/migrations/` — from `20260419003326_initiate` to `20261016112221_application_uploads_documents_photos`.
+- Migrations (21) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 2 `..._promote_graduated_message_templates`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -141,6 +141,9 @@ Patterns to copy:
   `StudentProfile.documents` (Json `[{kind, key, name}]`, kinds STUDENT_PHOTO, B_FORM, LEAVING_CERTIFICATE, FATHER/MOTHER_CNIC_FRONT/BACK) and
   `TeacherApplication.photoKey`. Files live under `applications/uploads/<kind>/` (not MediaAssets, like the CV); approval sets the student's
   `avatarKey` from STUDENT_PHOTO and copies the other documents to `StudentProfile.documents`; faculty approval sets the teacher's `avatarKey`.
+- Day 2 (2026-10-16, migration `..._promote_graduated_message_templates`, additive): `StudentProfile.graduatedAt` (set by Promote → Graduated,
+  whose enrollments become `GRADUATED`); `MessageTemplate` (campus column → in the middleware `DIRECT` set; `kind` = ABSENCE | LATE | LEAVE |
+  ATTENDANCE_ALERT | GENERAL_NOTICE, name, body with {student} {class} {date} {percent} {period} {absent} {school}).
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -213,6 +216,8 @@ teacher: employee code `TCH00001`…). Re-approving an already provisioned appli
 Reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
 · `GET me/courses?academicYearId` (T: taught courses, S: enrolled sections' courses, others `[]`)
+· `POST enrollments/promote` A (`{fromSectionId, studentIds (the ticked ones), toSectionId | graduate:true}`; same year → enrollment moves,
+  another year → new enrollment there; roll numbers kept; 400 not active in the class / no target, 409 roll clash or already enrolled in that year)
 · `POST enrollments/shift` A (`{studentIds: StudentProfile ids, sectionId}`; moves their enrollment in that section's year; all-or-nothing:
   400 if someone is not enrolled that year, 409 naming roll-number clashes) → `{moved, alreadyThere}`.
 · `enrollments`: POST/PATCH/DELETE A, `GET enrollments?sectionId&academicYearId&studentId` A,T. POST/PATCH check the section belongs
@@ -261,7 +266,8 @@ or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET 
 S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
 A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
-`GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
+`GET attendance/summary?from&to&sectionId?` (whole-day records per student: counts, total, `percent` = (Present+Late)/marked, class/roll,
+father/mother name + phone; lowest % first — feeds the WhatsApp % alert), `GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
 class label and subject; max 5000; feeds the admin combined report),
 `GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
 (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING).
@@ -289,6 +295,9 @@ active sections); P: `GET children/:studentId/diary?date` (link verified).
 
 **announcements** — A,T: `POST announcements` (T only `COURSE` with own courseId or `SECTION` where class teacher), `PATCH|DELETE announcements/:id`
 (author or A); auth: `GET announcements` (visibility-filtered by role/enrollment/children).
+
+**message-templates** (A) — `GET message-templates`, `POST` (`{kind, name ≤80, body ≤1500}`), `PATCH :id`, `DELETE :id` — WhatsApp
+click-to-chat wording per school (`modules/messages`).
 
 **notifications** — auth: `GET notifications?unread=true` (latest 100), `POST notifications/:id/read`, `POST notifications/read-all`.
 

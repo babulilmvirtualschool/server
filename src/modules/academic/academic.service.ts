@@ -16,6 +16,7 @@ import { CreateSubjectDto, UpdateSubjectDto } from './dto/subject.dto';
 import { CreateCourseDto, UpdateCourseDto } from './dto/course.dto';
 import {
   CreateEnrollmentDto,
+  PromoteStudentsDto,
   ShiftEnrollmentsDto,
   UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
@@ -371,6 +372,74 @@ export class AcademicService {
       ),
     );
     return { moved: moving.length, alreadyThere: enrollments.length - moving.length };
+  }
+
+  /**
+   * Promote: the ticked students of a section move to the target section keeping their roll numbers
+   * (same year → the enrollment moves; another year → a new enrollment in that year), or are marked Graduated.
+   * All-or-nothing: 400 if a student isn't active in the section, 409 on roll / enrollment clashes.
+   */
+  async promoteStudents(dto: PromoteStudentsDto) {
+    if (!!dto.graduate === !!dto.toSectionId) {
+      throw new BadRequestException('Choose the next class/section, or Graduated for the final class.');
+    }
+    const from = await this.prisma.section.findUnique({ where: { id: dto.fromSectionId }, include: { class: true } });
+    if (!from) throw new NotFoundException('Section not found');
+    const enrollments = await this.prisma.studentEnrollment.findMany({
+      where: { sectionId: from.id, status: 'ACTIVE', studentId: { in: dto.studentIds } },
+      include: { student: { include: { user: { select: { firstName: true, lastName: true } } } } },
+    });
+    if (enrollments.length !== dto.studentIds.length) {
+      throw new BadRequestException('Some selected students are not active in this class any more. Reload the list.');
+    }
+    const name = (e: (typeof enrollments)[number]) => `${e.student.user.firstName} ${e.student.user.lastName}`.trim();
+
+    if (dto.graduate) {
+      const now = new Date();
+      await this.prisma.$transaction([
+        this.prisma.studentEnrollment.updateMany({ where: { id: { in: enrollments.map((e) => e.id) } }, data: { status: 'GRADUATED' } }),
+        this.prisma.studentProfile.updateMany({ where: { id: { in: dto.studentIds } }, data: { graduatedAt: now } }),
+      ]);
+      return { graduated: enrollments.length, promoted: 0 };
+    }
+
+    const to = await this.prisma.section.findUnique({ where: { id: dto.toSectionId! }, include: { class: true } });
+    if (!to) throw new NotFoundException('Target section not found');
+    if (to.id === from.id) throw new BadRequestException('Choose a different class to promote to.');
+    const sameYear = to.class.academicYearId === from.class.academicYearId;
+
+    if (!sameYear) {
+      const already = await this.prisma.studentEnrollment.findMany({
+        where: { academicYearId: to.class.academicYearId, studentId: { in: dto.studentIds } },
+        include: { section: { include: { class: true } } },
+      });
+      if (already.length) {
+        const names = already.map((a) => {
+          const e = enrollments.find((x) => x.studentId === a.studentId)!;
+          return `${name(e)} (${a.section.class.name} ${a.section.name})`;
+        });
+        throw new ConflictException(`Already enrolled in that academic year: ${names.join(', ')}.`);
+      }
+    }
+    const taken = await this.prisma.studentEnrollment.findMany({
+      where: { sectionId: to.id, ...(sameYear ? { id: { notIn: enrollments.map((e) => e.id) } } : {}) },
+      select: { rollNumber: true },
+    });
+    const used = new Set(taken.map((t) => t.rollNumber));
+    const clashes = enrollments.filter((e) => used.has(e.rollNumber)).map((e) => `${name(e)} (roll ${e.rollNumber})`);
+    if (clashes.length) {
+      throw new ConflictException(`Roll number already used in ${to.class.name} ${to.name}: ${clashes.join(', ')}. Change their roll numbers first.`);
+    }
+    await this.prisma.$transaction(
+      enrollments.map((e) =>
+        sameYear
+          ? this.prisma.studentEnrollment.update({ where: { id: e.id }, data: { sectionId: to.id } })
+          : this.prisma.studentEnrollment.create({
+              data: { studentId: e.studentId, sectionId: to.id, academicYearId: to.class.academicYearId, rollNumber: e.rollNumber },
+            }),
+      ),
+    );
+    return { promoted: enrollments.length, graduated: 0 };
   }
 
   async updateEnrollment(id: string, dto: UpdateEnrollmentDto) {

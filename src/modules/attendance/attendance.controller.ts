@@ -102,6 +102,12 @@ export class AttendanceController {
   }
 
   @Roles(Role.ADMIN)
+  @Get('attendance/summary')
+  summary(@Query() q: AttendanceRecordsQueryDto) {
+    return this.svc.dailySummary(q);
+  }
+
+  @Roles(Role.ADMIN)
   @Get('attendance/records')
   records(@Query() q: AttendanceRecordsQueryDto) {
     return this.svc.recordsForReport(q);
