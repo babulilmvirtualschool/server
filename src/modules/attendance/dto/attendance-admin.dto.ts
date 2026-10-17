@@ -9,6 +9,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -27,6 +28,11 @@ export class StaffAttendanceEntryDto {
   @IsString()
   @MaxLength(500)
   remarks?: string;
+
+  @ApiPropertyOptional({ example: '08:40', description: 'Arrival time; Present/Late is then decided by the timing + late threshold' })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'arrivalTime must be HH:mm' })
+  arrivalTime?: string;
 }
 
 /** Admin marks staff attendance for one date; recorded as approved. */

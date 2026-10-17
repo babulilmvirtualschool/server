@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
@@ -23,6 +24,11 @@ export class AttendanceEntryDto {
   @IsOptional()
   @IsString()
   remarks?: string;
+
+  @ApiPropertyOptional({ example: '08:40', description: 'Arrival time; Present/Late is then decided by the timing + late threshold' })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'arrivalTime must be HH:mm' })
+  arrivalTime?: string;
 }
 
 export class BulkMarkAttendanceDto {

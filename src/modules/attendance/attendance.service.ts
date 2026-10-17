@@ -22,6 +22,7 @@ import {
   ReviewTeacherAttendanceDto,
 } from './dto/teacher-attendance.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
+import { AttendanceRulesService } from './attendance-rules.service';
 
 function parseDateOnly(value: string): Date {
   const d = new Date(value);
@@ -31,7 +32,10 @@ function parseDateOnly(value: string): Date {
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rules: AttendanceRulesService,
+  ) {}
 
   async bulkMark(user: AuthUser, dto: BulkMarkAttendanceDto) {
     if (!dto.courseId && !dto.sectionId) {
@@ -61,8 +65,23 @@ export class AttendanceService {
     const date = new Date(dto.date);
     date.setHours(0, 0, 0, 0);
 
+    // Attendance settings: no marking on closed days / closures; an arrival time decides Present or Late.
+    const sectionForRule =
+      dto.sectionId ??
+      (await this.prisma.course.findUnique({ where: { id: dto.courseId! }, select: { sectionId: true } }))?.sectionId ??
+      null;
+    const rule = await this.rules.studentDay(dto.date, sectionForRule);
+    if (rule.closed) {
+      throw new BadRequestException(`School is closed on ${rule.date} (${rule.closed}) — attendance is not taken.`);
+    }
+    const entries = dto.entries.map((e) => ({
+      ...e,
+      status: AttendanceRulesService.statusFromArrival(e.status, e.arrivalTime, rule),
+      arrivalTime: e.arrivalTime ?? null,
+    }));
+
     return this.prisma.$transaction(async (tx) => {
-      const ops = dto.entries.map(async (entry) => {
+      const ops = entries.map(async (entry) => {
         // Find existing for idempotent update
         const existing = await tx.attendanceRecord.findFirst({
           where: {
@@ -78,6 +97,7 @@ export class AttendanceService {
             data: {
               status: entry.status,
               remarks: entry.remarks,
+              arrivalTime: entry.arrivalTime,
               markedById: user.id,
             },
           });
@@ -90,6 +110,7 @@ export class AttendanceService {
             sectionId: dto.sectionId ?? null,
             status: entry.status,
             remarks: entry.remarks,
+            arrivalTime: entry.arrivalTime,
             markedById: user.id,
           },
         });
@@ -338,6 +359,10 @@ export class AttendanceService {
     if (date > today) {
       throw new BadRequestException('Cannot mark attendance for a future date');
     }
+    const rule = (await this.rules.staffDays(dto.date, [teacher.id]))[teacher.id];
+    if (rule.closed) {
+      throw new BadRequestException(`No attendance on ${rule.date}: ${rule.closed}.`);
+    }
 
     const existing = await this.prisma.teacherAttendanceRecord.findUnique({
       where: { teacherId_date: { teacherId: teacher.id, date } },
@@ -350,8 +375,9 @@ export class AttendanceService {
 
     // Submitted to the admin; only counted once approved.
     const pending = {
-      status: dto.status,
+      status: AttendanceRulesService.statusFromArrival(dto.status, dto.arrivalTime, rule),
       remarks: dto.remarks,
+      arrivalTime: dto.arrivalTime ?? null,
       recordedById: user.id,
       approvalStatus: AttendanceApprovalStatus.PENDING,
       reviewedById: null,
@@ -451,11 +477,25 @@ export class AttendanceService {
     if (found !== ids.length) throw new BadRequestException('One or more teachers were not found');
     const date = parseDateOnly(dto.date);
     const now = new Date();
+    // Attendance settings: closures for teachers, each teacher's own off days, arrival time → Present / Late.
+    const rules = await this.rules.staffDays(dto.date, ids);
+    const closed = dto.entries.filter((e) => rules[e.teacherId].closed && e.status !== 'ON_LEAVE');
+    if (closed.length) {
+      const reason = rules[closed[0].teacherId].closed;
+      const names = await this.prisma.teacherProfile.findMany({
+        where: { id: { in: closed.map((e) => e.teacherId) } },
+        select: { user: { select: { firstName: true, lastName: true } } },
+      });
+      throw new BadRequestException(
+        `No attendance on ${dto.date.slice(0, 10)} for ${names.map((n) => `${n.user.firstName} ${n.user.lastName}`.trim()).join(', ')} (${reason}).`,
+      );
+    }
     return this.prisma.$transaction(
       dto.entries.map((e) => {
         const data = {
-          status: e.status,
+          status: AttendanceRulesService.statusFromArrival(e.status, e.arrivalTime, rules[e.teacherId]),
           remarks: e.remarks?.trim() || null,
+          arrivalTime: e.arrivalTime ?? null,
           recordedById: admin.id,
           approvalStatus: AttendanceApprovalStatus.APPROVED,
           reviewedById: admin.id,

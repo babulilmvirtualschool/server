@@ -18,6 +18,8 @@ const DIRECT = new Set([
   'TeacherApplication',
   'Announcement',
   'MessageTemplate',
+  'AttendanceSettings',
+  'SchoolClosure',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -75,6 +77,7 @@ const VIA: Record<string, Scope> = {
   DiaryEntry: course,
   BankQuestion: (c) => ({ subject: { campus: c } }),
   StudentDischarge: student,
+  StaffTiming: teacher,
 };
 
 /**

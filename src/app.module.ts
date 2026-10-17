@@ -24,6 +24,7 @@ import { LeaveModule } from './modules/leave/leave.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
 import { DiaryModule } from './modules/diary/diary.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 
 @Module({
@@ -66,6 +67,7 @@ import { QuestionBankModule } from './modules/question-bank/question-bank.module
     TimetableModule,
     DiaryModule,
     MessagesModule,
+    ReportsModule,
     QuestionBankModule,
   ],
 })

@@ -134,6 +134,7 @@ model TeacherProfile {
   salaryPayments   SalaryPayment[]
   liveClasses      LiveClass[]
   attendanceRecords TeacherAttendanceRecord[]
+  staffTiming       StaffTiming?
   leaveRequests    TeacherLeaveRequest[]
 }
 
@@ -257,6 +258,8 @@ model Section {
   attendance     AttendanceRecord[]
   announcements  Announcement[]
   admissionApplications AdmissionApplication[]
+  /// Attendance settings → Shifts mode: which shift's timings apply to this class (null = default timings).
+  shift          SchoolShift?
 
   @@unique([classId, name])
   @@index([classTeacherId])
@@ -759,6 +762,8 @@ model AttendanceRecord {
   student    StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
   status     AttendanceStatus
   remarks    String?
+  /// "HH:mm" when the arrival time was entered (status Present/Late is then decided by the late threshold).
+  arrivalTime String?
   markedById String
   markedBy   User     @relation("AttendanceMarker", fields: [markedById], references: [id], onDelete: Restrict)
   createdAt  DateTime @default(now())
@@ -791,6 +796,8 @@ model TeacherAttendanceRecord {
   date         DateTime @db.Date
   status       TeacherAttendanceStatus
   remarks      String?
+  /// "HH:mm" when the arrival time was entered (Present/Late decided by the staff member's timing + threshold).
+  arrivalTime  String?
   recordedById String
   recordedBy   User     @relation("TeacherAttendanceRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
   // Teacher self-submissions start PENDING and only count once an admin approves them.
@@ -805,6 +812,55 @@ model TeacherAttendanceRecord {
   @@unique([teacherId, date])
   @@index([date])
   @@index([approvalStatus])
+}
+
+// Attendance settings (PDF 2): one per school; timings per weekday for the default timetable and the two shifts.
+enum AttendanceMode {
+  DEFAULT
+  SHIFTS
+}
+
+enum SchoolShift {
+  MORNING
+  EVENING
+}
+
+model AttendanceSettings {
+  id                   String         @id @default(cuid())
+  campus               Campus         @unique @default(ONLINE)
+  mode                 AttendanceMode @default(DEFAULT)
+  /// Marked Late when arriving after start time + this many minutes.
+  lateThresholdMinutes Int            @default(25)
+  /// { DEFAULT: Day[7], MORNING: Day[7], EVENING: Day[7] }, Day = { day: "MONDAY", open, start: "HH:mm", end: "HH:mm" }
+  schedules            Json
+  updatedAt            DateTime       @updatedAt
+}
+
+/// Per-staff timings (PDF 2.4): overrides the school timings for one teacher.
+model StaffTiming {
+  id                   String         @id @default(cuid())
+  teacherId            String         @unique
+  teacher              TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  shift                SchoolShift?
+  lateThresholdMinutes Int?
+  /// Day[7] like AttendanceSettings.schedules
+  days                 Json
+  updatedAt            DateTime       @updatedAt
+}
+
+/// School closures & holidays (PDF 2.5): no attendance is marked for the groups it applies to.
+model SchoolClosure {
+  id        String   @id @default(cuid())
+  campus    Campus   @default(ONLINE)
+  name      String
+  /// any of STUDENT, TEACHER, STAFF
+  appliesTo String[]
+  fromDate  DateTime @db.Date
+  toDate    DateTime @db.Date
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([campus, fromDate])
 }
 
 enum LeaveType {

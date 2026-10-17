@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (21) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 2 `..._promote_graduated_message_templates`.
+- Migrations (22) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 3 `20261017103145_attendance_settings_closures`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -144,6 +144,13 @@ Patterns to copy:
 - Day 2 (2026-10-16, migration `..._promote_graduated_message_templates`, additive): `StudentProfile.graduatedAt` (set by Promote → Graduated,
   whose enrollments become `GRADUATED`); `MessageTemplate` (campus column → in the middleware `DIRECT` set; `kind` = ABSENCE | LATE | LEAVE |
   ATTENDANCE_ALERT | GENERAL_NOTICE, name, body with {student} {class} {date} {percent} {period} {absent} {school}).
+- Day 3 (2026-10-17, migration `20261017103145_attendance_settings_closures`, additive): `AttendanceSettings` (one per school, campus `@unique`, in `DIRECT`: mode DEFAULT|SHIFTS,
+  `lateThresholdMinutes` (25), `schedules` Json {DEFAULT, MORNING, EVENING: Day[7]} with Day = {day, open, start "HH:mm", end}); until saved the
+  service returns defaults (Mon–Sat 08:00–14:00, Sunday closed). `Section.shift` (MORNING|EVENING|null) picks the shift timings in Shifts mode.
+  `StaffTiming` (per teacher, VIA teacher: shift?, own threshold?, days Day[7]). `SchoolClosure` (DIRECT: name, appliesTo STUDENT|TEACHER|STAFF[],
+  fromDate/toDate `@db.Date`, note). `AttendanceRecord.arrivalTime` / `TeacherAttendanceRecord.arrivalTime` ("HH:mm"). Rules live in
+  `attendance/attendance-rules.service.ts`: student marking (bulk, homeroom or period) and staff marking (admin bulk, teacher self) are refused on
+  closed weekdays and closures for their group (staff ON_LEAVE still allowed); with an arrival time, PRESENT/LATE is decided by start + threshold.
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -266,7 +273,8 @@ or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET 
 S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
 A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
-`GET attendance/summary?from&to&sectionId?` (whole-day records per student: counts, total, `percent` = (Present+Late)/marked, class/roll,
+`GET attendance/day-info?date&sectionId?` A,T (`{closed, start, end, lateThresholdMinutes, lateAfter}`), `GET attendance/staff-day-info?date` A
+(TeacherProfile.id → same), `GET attendance/summary?from&to&sectionId?` (whole-day records per student: counts, total, `percent` = (Present+Late)/marked, class/roll,
 father/mother name + phone; lowest % first — feeds the WhatsApp % alert), `GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
 class label and subject; max 5000; feeds the admin combined report),
 `GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
@@ -295,6 +303,14 @@ active sections); P: `GET children/:studentId/diary?date` (link verified).
 
 **announcements** — A,T: `POST announcements` (T only `COURSE` with own courseId or `SECTION` where class teacher), `PATCH|DELETE announcements/:id`
 (author or A); auth: `GET announcements` (visibility-filtered by role/enrollment/children).
+
+**attendance-settings** (A) — `GET|PUT attendance-settings` (`{mode, lateThresholdMinutes 0–240, schedules}`; 7 days each, start < end on open days),
+`GET|PUT attendance-settings/shifts` (`{sections:[{sectionId, shift|null}]}`), `GET staff-timings`, `PUT|DELETE staff-timings/:teacherId`
+(`{shift?, lateThresholdMinutes?, days}`), `GET school-closures?from&to` (A,T), `POST school-closures` (`{name, appliesTo[], fromDate, toDate, note?}`),
+`DELETE school-closures/:id`. `attendance/bulk`, `teacher-attendance/bulk` entries and `me/teacher-attendance` take optional `arrivalTime`.
+
+**reports** (A) — `GET reports/student-growth/:studentId?months=6` (StudentProfile id; attendance per month, exam results per exam with subjects,
+graded-assignment and quiz averages).
 
 **message-templates** (A) — `GET message-templates`, `POST` (`{kind, name ≤80, body ≤1500}`), `PATCH :id`, `DELETE :id` — WhatsApp
 click-to-chat wording per school (`modules/messages`).
