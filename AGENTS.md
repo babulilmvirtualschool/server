@@ -283,7 +283,8 @@ class label and subject; max 5000; feeds the admin combined report),
 **leave** — T: `POST|GET me/teacher-leaves`, `GET me/class-student-leaves?status&page` (leave of students actively enrolled in sections the
 teacher teaches or is class teacher of); S: `POST|GET me/student-leaves`; A: `GET teacher-leaves?status`, `PATCH teacher-leaves/:id`,
 `GET student-leaves?status`, `PATCH student-leaves/:id` (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING can be reviewed).
-Approval writes attendance: teacher → `ON_LEAVE` per day; student → `EXCUSED` homeroom + every course of each active enrollment per day.
+Approval writes attendance: teacher → `ON_LEAVE` per day; student → `EXCUSED` homeroom + every course of each active enrollment per day —
+only on open days (closed weekdays, the teacher's own off days and closures are skipped, via `AttendanceRulesService`).
 
 **fees** — A: `POST fee-structures` (with components), `DELETE fee-structures/:id`, `POST fee-invoices/generate`
 (`{feeStructureId, period, includeFrequencies[], dueDate}` → one invoice per ACTIVE enrollment in that class/year; existing student+period kept),

@@ -18,6 +18,7 @@ import {
   paginate,
 } from '../../common/pagination/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AttendanceRulesService } from '../attendance/attendance-rules.service';
 import { CreateStudentLeaveDto } from './dto/create-student-leave.dto';
 import { CreateTeacherLeaveDto } from './dto/create-teacher-leave.dto';
 import { ListLeavesDto } from './dto/list-leaves.dto';
@@ -29,6 +30,9 @@ function parseDateOnly(value: string): Date {
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
+/** "YYYY-MM-DD" of a leave day (date-only values come back from the database as UTC midnight). */
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 function eachDateInclusive(start: Date, end: Date): Date[] {
   const dates: Date[] = [];
@@ -42,7 +46,10 @@ function eachDateInclusive(start: Date, end: Date): Date[] {
 
 @Injectable()
 export class LeaveService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rules: AttendanceRulesService,
+  ) {}
 
   private async teacherForUser(userId: string) {
     const teacher = await this.prisma.teacherProfile.findUnique({
@@ -182,7 +189,12 @@ export class LeaveService {
     leave: { teacherId: string; startDate: Date; endDate: Date },
     recordedById: string,
   ) {
-    const dates = eachDateInclusive(leave.startDate, leave.endDate);
+    // Closed days (weekly off, own off days, closures for teachers) get no attendance record.
+    const dates: Date[] = [];
+    for (const d of eachDateInclusive(leave.startDate, leave.endDate)) {
+      if (!(await this.rules.staffDays(ymd(d), [leave.teacherId]))[leave.teacherId].closed) dates.push(d);
+    }
+    if (!dates.length) return;
     // The leave itself was approved by the admin, so these days count as approved attendance.
     const approval = {
       approvalStatus: AttendanceApprovalStatus.APPROVED,
@@ -398,9 +410,14 @@ export class LeaveService {
     });
     if (!enrollments.length) return;
 
-    const dates = eachDateInclusive(leave.startDate, leave.endDate);
+    const allDates = eachDateInclusive(leave.startDate, leave.endDate);
 
     for (const enrollment of enrollments) {
+      // Closed days of this class (weekly off / closures for students) get no attendance record.
+      const dates: Date[] = [];
+      for (const d of allDates) {
+        if (!(await this.rules.studentDay(ymd(d), enrollment.sectionId)).closed) dates.push(d);
+      }
       const courses = await this.prisma.course.findMany({
         where: {
           sectionId: enrollment.sectionId,

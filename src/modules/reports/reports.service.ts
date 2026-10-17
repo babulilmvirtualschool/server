@@ -83,7 +83,7 @@ export class ReportsService {
     const aMax = graded.reduce((t, g) => t + g.assignment.maxMarks, 0);
     const attempts = await this.prisma.quizAttempt.findMany({
       where: { studentId, status: { in: ['SUBMITTED', 'AUTO_SUBMITTED', 'GRADED'] }, score: { not: null } },
-      orderBy: { submittedAt: 'desc' },
+      orderBy: [{ submittedAt: 'asc' }, { attemptNumber: 'asc' }], // the Map below keeps the last (= latest) attempt per quiz
       select: { quizId: true, score: true, quiz: { select: { totalMarks: true } } },
     });
     const latest = [...new Map(attempts.map((a) => [a.quizId, a])).values()].filter((a) => a.quiz.totalMarks > 0);
