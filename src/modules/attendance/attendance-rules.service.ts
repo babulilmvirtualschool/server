@@ -227,6 +227,36 @@ export class AttendanceRulesService {
     return out;
   }
 
+  /**
+   * Every class of the current year for one date: active students, how many have whole-day attendance,
+   * and the day's rule (closed? late after) — for "All classes" and the "no attendance left" check.
+   */
+  async dayOverview(date: string) {
+    const d = utcDay(date);
+    const sections = await this.prisma.section.findMany({
+      where: { class: { academicYear: { isCurrent: true } } },
+      select: {
+        id: true,
+        name: true,
+        class: { select: { name: true, level: true } },
+        enrollments: { where: { status: 'ACTIVE', academicYear: { isCurrent: true } }, select: { studentId: true } },
+      },
+    });
+    const marked = await this.prisma.attendanceRecord.groupBy({
+      by: ['sectionId'],
+      where: { date: d, courseId: null, sectionId: { in: sections.map((s) => s.id) } },
+      _count: { _all: true },
+    });
+    const out: { sectionId: string; label: string; students: number; marked: number; complete: boolean; rule: DayRule }[] = [];
+    for (const s of sections.sort((a, b) => a.class.level - b.class.level || a.class.name.localeCompare(b.class.name) || a.name.localeCompare(b.name))) {
+      const rule = await this.studentDay(date, s.id);
+      const students = s.enrollments.length;
+      const done = Math.min(marked.find((m) => m.sectionId === s.id)?._count._all ?? 0, students);
+      out.push({ sectionId: s.id, label: `${s.class.name} · ${s.name}`, students, marked: done, complete: !!rule.closed || students === 0 || done >= students, rule });
+    }
+    return out;
+  }
+
   /** staffDays for every teacher of the school. */
   async allStaffDays(date: string) {
     const ids = (await this.prisma.teacherProfile.findMany({ select: { id: true } })).map((t) => t.id);

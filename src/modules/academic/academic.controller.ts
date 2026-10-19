@@ -169,6 +169,12 @@ export class AcademicController {
     return this.svc.updateCourse(id, dto);
   }
   @Roles(Role.ADMIN)
+  @Get('courses/:id/delete-impact')
+  courseDeleteImpact(@Param('id') id: string) {
+    return this.svc.courseDeleteImpact(id);
+  }
+
+  @Roles(Role.ADMIN)
   @Delete('courses/:id')
   deleteCourse(@Param('id') id: string) {
     return this.svc.deleteCourse(id);

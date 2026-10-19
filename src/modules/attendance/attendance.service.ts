@@ -615,6 +615,7 @@ export class AttendanceService {
         date: r.date,
         status: r.status,
         remarks: r.remarks,
+        arrivalTime: r.arrivalTime,
         kind: r.courseId ? 'PERIOD' : 'DAILY',
         student: {
           id: r.student.id,

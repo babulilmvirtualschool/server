@@ -184,12 +184,50 @@ export class AcademicService {
     return course;
   }
 
-  updateCourse(id: string, dto: UpdateCourseDto) {
+  async updateCourse(id: string, dto: UpdateCourseDto) {
+    if (dto.teacherId) {
+      const t = await this.prisma.teacherProfile.findUnique({ where: { id: dto.teacherId }, select: { id: true } });
+      if (!t) throw new BadRequestException({ message: 'Teacher not found', fields: { teacherId: 'Choose a teacher' } });
+    }
     return this.prisma.course.update({ where: { id }, data: dto });
   }
 
-  deleteCourse(id: string) {
-    return this.prisma.course.delete({ where: { id } });
+  /** What deleting a course would remove; `canDelete` is false while it holds student records (attendance, work, results). */
+  async courseDeleteImpact(id: string) {
+    const c = await this.prisma.course.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        _count: {
+          select: { lessons: true, liveClasses: true, assignments: true, quizzes: true, attendance: true, examPapers: true, timetableSlots: true, diaryEntries: true, announcements: true },
+        },
+      },
+    });
+    if (!c) throw new NotFoundException('Course not found');
+    const [submissions, attempts] = await Promise.all([
+      this.prisma.assignmentSubmission.count({ where: { assignment: { courseId: id } } }),
+      this.prisma.quizAttempt.count({ where: { quiz: { courseId: id } } }),
+    ]);
+    const n = c._count;
+    const blockers = [
+      n.attendance ? `${n.attendance} attendance record(s)` : null,
+      submissions ? `${submissions} assignment submission(s)` : null,
+      attempts ? `${attempts} online-test attempt(s)` : null,
+      n.examPapers ? `${n.examPapers} exam paper(s)` : null,
+    ].filter((x): x is string => !!x);
+    return { counts: { ...n, submissions, attempts }, canDelete: blockers.length === 0, blockers };
+  }
+
+  /** Delete a course with its content, timetable and diary — refused (409) while it holds student records. */
+  async deleteCourse(id: string) {
+    const impact = await this.courseDeleteImpact(id);
+    if (!impact.canDelete) {
+      throw new ConflictException(
+        `This course has ${impact.blockers.join(', ')} — it can't be deleted. Change its teacher instead.`,
+      );
+    }
+    await this.prisma.course.delete({ where: { id } });
+    return { success: true as const };
   }
 
   /** Courses for a student (via their enrollment in a Section). */

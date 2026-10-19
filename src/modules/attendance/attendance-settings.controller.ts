@@ -86,6 +86,13 @@ export class AttendanceSettingsController {
     return this.rules.studentDay(q.date, q.sectionId);
   }
 
+  /** Every class for a date: students, marked, complete, rule. */
+  @Roles(Role.ADMIN)
+  @Get('attendance/day-overview')
+  dayOverview(@Query() q: DayInfoQueryDto) {
+    return this.rules.dayOverview(q.date);
+  }
+
   /** Per-teacher rule for a date (their timing / threshold, closures for teachers). */
   @Roles(Role.ADMIN)
   @Get('attendance/staff-day-info')

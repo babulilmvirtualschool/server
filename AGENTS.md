@@ -222,6 +222,8 @@ teacher: employee code `TCH00001`…). Re-approving an already provisioned appli
 **academic** — public: `GET public/classes?campus=ONLINE|PHYSICAL` (current-year class names, website admission form).
 Reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
+· `GET courses/:id/delete-impact` A (`{counts, canDelete, blockers}`) · `DELETE courses/:id` refused (409) while the course has attendance,
+submissions, test attempts or exam papers; `PATCH courses/:id` checks `teacherId` (400 `fields.teacherId`)
 · `GET me/courses?academicYearId` (T: taught courses, S: enrolled sections' courses, others `[]`)
 · `POST enrollments/promote` A (`{fromSectionId, studentIds (the ticked ones), toSectionId | graduate:true}`; same year → enrollment moves,
   another year → new enrollment there; roll numbers kept; 400 not active in the class / no target, 409 roll clash or already enrolled in that year)
@@ -273,6 +275,7 @@ or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET 
 S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
 A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
+`GET attendance/day-overview?date` A (every current-year class: `{sectionId, label, students, marked, complete, rule}`; closed days count as complete),
 `GET attendance/day-info?date&sectionId?` A,T (`{closed, start, end, lateThresholdMinutes, lateAfter}`), `GET attendance/staff-day-info?date` A
 (TeacherProfile.id → same), `GET attendance/summary?from&to&sectionId?` (whole-day records per student: counts, total, `percent` = (Present+Late)/marked, class/roll,
 father/mother name + phone; lowest % first — feeds the WhatsApp % alert), `GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
