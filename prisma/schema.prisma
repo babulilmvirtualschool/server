@@ -16,6 +16,14 @@ enum Role {
   TEACHER
   STUDENT
   PARENT
+  /// Non-teaching staff (accounts, office, guards…): a TeacherProfile without teaching; sees own attendance, leave, salary, certificates.
+  STAFF
+}
+
+/// Website faculty form: applying for a teaching or a non-teaching job.
+enum StaffType {
+  TEACHING
+  NON_TEACHING
 }
 
 /// Online school vs physical (campus) school — each has its own isolated data (see src/common/campus).
@@ -127,6 +135,10 @@ model TeacherProfile {
   /// R2 object key of the CV (admin upload, or copied from the approved faculty application).
   cvKey              String?
   cvOriginalName     String?
+  /// Job title of non-teaching staff (e.g. Accountant, Guard).
+  designation        String?
+  /// Certificates the admin uploads for this staff member: [{key, name, fileName, mimeType, uploadedAt}].
+  documents          Json?
 
   coursesTaught    Course[]            @relation("CourseTeacher")
   homeroomSections Section[]           @relation("ClassTeacher")
@@ -1205,7 +1217,12 @@ model TeacherApplication {
   city      String
   cnic      String
 
-  subjectExpertise     String
+  staffType   StaffType @default(TEACHING)
+  /// Job title for non-teaching applications.
+  designation String?
+
+  /// Required for teaching applications only.
+  subjectExpertise     String?
   highestQualification String
   teachingExperience   String
   currentWorkplace     String?
@@ -1237,6 +1254,8 @@ enum MessageTemplateKind {
   LEAVE
   ATTENDANCE_ALERT
   GENERAL_NOTICE
+  EMERGENCY
+  SECURITY
 }
 
 model MessageTemplate {

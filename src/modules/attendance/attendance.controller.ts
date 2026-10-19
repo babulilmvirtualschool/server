@@ -19,6 +19,7 @@ import { AttendanceReportQueryDto } from './dto/attendance-report.dto';
 import {
   AttendanceRecordsQueryDto,
   BulkStaffAttendanceDto,
+  MonthGridQueryDto,
 } from './dto/attendance-admin.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
 import {
@@ -70,7 +71,7 @@ export class AttendanceController {
     return this.svc.summaryForStudent(user.id, from, to);
   }
 
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.STAFF)
   @Post('me/teacher-attendance')
   markTeacherSelf(
     @CurrentUser() user: AuthUser,
@@ -79,7 +80,7 @@ export class AttendanceController {
     return this.svc.markTeacherSelf(user, dto);
   }
 
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.STAFF)
   @Get('me/teacher-attendance')
   myTeacherAttendance(
     @CurrentUser() user: AuthUser,
@@ -99,6 +100,20 @@ export class AttendanceController {
   @Post('teacher-attendance/bulk')
   bulkStaff(@CurrentUser() user: AuthUser, @Body() dto: BulkStaffAttendanceDto) {
     return this.svc.bulkMarkStaff(user, dto);
+  }
+
+  /** Monthly marking grid for one class: students × days (whole-day records) + each day's rule. */
+  @Roles(Role.ADMIN)
+  @Get('attendance/month')
+  monthGrid(@Query() q: MonthGridQueryDto) {
+    return this.svc.studentMonthGrid(q);
+  }
+
+  /** Monthly marking grid for teachers and non-teaching staff: people × days + each person's day rules. */
+  @Roles(Role.ADMIN)
+  @Get('attendance/staff-month')
+  staffMonthGrid(@Query() q: MonthGridQueryDto) {
+    return this.svc.staffMonthGrid(q.month);
   }
 
   @Roles(Role.ADMIN)

@@ -11,8 +11,10 @@ import {
   Campus,
   Gender,
   ParentRelation,
+  MediaPurpose,
   Prisma,
   Role,
+  StaffType,
   TeacherApplicationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -21,8 +23,10 @@ import { MediaService } from '../media/media.service';
 import { PasswordVault } from '../../common/utils/password-vault';
 import { DischargeStudentsDto, ListDischargedDto, ReadmitStudentDto } from './dto/student-lifecycle.dto';
 import {
+  AddCertificateDto,
   CreateAdminDto,
   CreateParentDto,
+  CreateStaffDto,
   CreateStudentDto,
   CreateTeacherDto,
   ParentChildLinkDto,
@@ -189,6 +193,7 @@ export class UsersService {
           teachingExperience: true,
           city: true,
           joiningDate: true,
+          designation: true,
         },
       },
       adminProfile: {
@@ -536,6 +541,99 @@ export class UsersService {
     });
   }
 
+  /** Non-teaching staff: role STAFF with a TeacherProfile (attendance, timings, leave and salary work like teachers'). */
+  async createStaff(dto: CreateStaffDto) {
+    this.assertEmailOrUsername(dto);
+    const employeeCode = dto.employeeCode?.trim() || (await this.allocateNextEmployeeCode('STF'));
+    const creds = await this.credentials(dto.password);
+    return this.prisma.user.create({
+      data: {
+        email: dto.email,
+        username: dto.username,
+        phone: dto.phone,
+        ...creds,
+        role: Role.STAFF,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        gender: dto.gender,
+        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+        avatarKey: dto.avatarKey,
+        teacherProfile: {
+          create: {
+            employeeCode,
+            designation: dto.designation.trim(),
+            qualification: dto.qualification,
+            joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : null,
+            bio: dto.bio,
+            cnic: dto.cnic,
+            city: dto.city,
+            teachingExperience: dto.teachingExperience,
+          },
+        },
+      },
+      select: this.userSelect(),
+    });
+  }
+
+  // ---------- staff certificates (admin uploads; the staff member sees them in the portal) ----------
+  private async staffProfileOf(userId: string) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, teacherProfile: { select: { id: true, documents: true } } },
+    });
+    if (!u) throw new NotFoundException('User not found');
+    if (!u.teacherProfile || (u.role !== Role.STAFF && u.role !== Role.TEACHER)) {
+      throw new BadRequestException('Certificates are only for teachers and staff.');
+    }
+    return u.teacherProfile;
+  }
+
+  private static certificates(documents: Prisma.JsonValue | null) {
+    return (Array.isArray(documents) ? documents : []) as {
+      key: string;
+      name: string;
+      fileName: string | null;
+      mimeType: string;
+      uploadedAt: string;
+    }[];
+  }
+
+  async certificatesOf(userId: string) {
+    return UsersService.certificates((await this.staffProfileOf(userId)).documents);
+  }
+
+  async addCertificate(userId: string, dto: AddCertificateDto) {
+    const profile = await this.staffProfileOf(userId);
+    const list = UsersService.certificates(profile.documents);
+    const asset = await this.prisma.mediaAsset.findUnique({ where: { key: dto.key } });
+    if (!asset || !asset.finalized || asset.purpose !== MediaPurpose.OTHER) {
+      throw new BadRequestException({ message: 'Upload the file again.', fields: { key: 'Invalid upload' } });
+    }
+    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
+      throw new BadRequestException({ message: 'Certificates must be a PDF, JPG, PNG or WebP file.', fields: { key: 'Wrong file type' } });
+    }
+    if (asset.size > 10 * 1024 * 1024) {
+      throw new BadRequestException({ message: 'The file must be 10 MB or smaller.', fields: { key: 'Too large' } });
+    }
+    if (list.some((d) => d.key === dto.key)) throw new ConflictException('This file is already added.');
+    if (list.length >= 30) throw new BadRequestException('A staff member can have at most 30 certificates.');
+    const next = [
+      ...list,
+      { key: asset.key, name: dto.name.trim(), fileName: asset.originalName, mimeType: asset.mimeType, uploadedAt: new Date().toISOString() },
+    ];
+    await this.prisma.teacherProfile.update({ where: { id: profile.id }, data: { documents: next } });
+    return next;
+  }
+
+  async removeCertificate(userId: string, key: string) {
+    const profile = await this.staffProfileOf(userId);
+    const list = UsersService.certificates(profile.documents);
+    if (!key || !list.some((d) => d.key === key)) throw new NotFoundException('Certificate not found');
+    const next = list.filter((d) => d.key !== key);
+    await this.prisma.teacherProfile.update({ where: { id: profile.id }, data: { documents: next } });
+    return next;
+  }
+
   async createStudent(dto: CreateStudentDto) {
     this.assertEmailOrUsername(dto);
     const creds = await this.credentials(dto.password);
@@ -666,7 +764,7 @@ export class UsersService {
 
     if (
       teacherProfile &&
-      existing.role === Role.TEACHER &&
+      (existing.role === Role.TEACHER || existing.role === Role.STAFF) &&
       existing.teacherProfile
     ) {
       await this.prisma.teacherProfile.update({
@@ -964,7 +1062,7 @@ export class UsersService {
       );
     }
 
-    if (user.role === Role.TEACHER && user.teacherProfile?.id) {
+    if ((user.role === Role.TEACHER || user.role === Role.STAFF) && user.teacherProfile?.id) {
       const teacherId = user.teacherProfile.id;
       const [assignedCourses, liveClasses, homeroomSections, teacherAppLink] =
         await Promise.all([
@@ -1017,7 +1115,7 @@ export class UsersService {
   }
 
   /** Suggested username + employee code when admin manually creates a teacher. */
-  async suggestManualTeacherCreate(firstName: string, lastName: string) {
+  async suggestManualTeacherCreate(firstName: string, lastName: string, staff = false) {
     const base = baseUsernameFromNames(
       firstName?.trim() || 'teacher',
       lastName?.trim() || 'user',
@@ -1026,7 +1124,7 @@ export class UsersService {
       base,
       new Set(),
     );
-    const employeeCode = await this.allocateNextTeacherEmployeeCode();
+    const employeeCode = await this.allocateNextEmployeeCode(staff ? 'STF' : 'TCH');
     return { teacherUsername, employeeCode };
   }
 
@@ -1851,13 +1949,14 @@ export class UsersService {
       base,
       new Set(),
     );
-    const employeeCode = await this.allocateNextTeacherEmployeeCode();
+    const employeeCode = await this.allocateNextEmployeeCode(app.staffType === StaffType.NON_TEACHING ? 'STF' : 'TCH');
     return { teacherUsername, employeeCode };
   }
 
-  private async allocateNextTeacherEmployeeCode(): Promise<string> {
+  /** TCH00001… for teachers, STF00001… for non-teaching staff. */
+  private async allocateNextEmployeeCode(prefix: 'TCH' | 'STF'): Promise<string> {
     for (let n = 1; n < 999_999; n++) {
-      const code = `TCH${String(n).padStart(5, '0')}`;
+      const code = `${prefix}${String(n).padStart(5, '0')}`;
       const exists = await this.prisma.teacherProfile.findUnique({
         where: { employeeCode: code },
       });
@@ -1954,7 +2053,7 @@ export class UsersService {
             username: tu,
             phone: app.phone.trim(),
             ...creds,
-            role: Role.TEACHER,
+            role: app.staffType === StaffType.NON_TEACHING ? Role.STAFF : Role.TEACHER,
             firstName: app.firstName.trim(),
             lastName: app.lastName.trim(),
             gender: app.gender ?? null,
@@ -1964,7 +2063,8 @@ export class UsersService {
               create: {
                 employeeCode: accounts.employeeCode.trim(),
                 qualification: app.highestQualification,
-                specialization: app.subjectExpertise,
+                specialization: app.subjectExpertise ?? null,
+                designation: app.staffType === StaffType.NON_TEACHING ? app.designation : null,
                 joiningDate: app.joiningDate ?? new Date(),
                 bio: app.bio ?? null,
                 cnic: app.cnic.trim(),
@@ -1991,7 +2091,7 @@ export class UsersService {
       const code = (e as { code?: string })?.code;
       if (code === 'P2002') {
         throw new BadRequestException(
-          'Could not create this teacher account because a unique field (email, phone, username, or employee code) is already in use.',
+          'Could not create this account because a unique field (email, phone, username, or employee code) is already in use.',
         );
       }
       throw e;

@@ -49,6 +49,18 @@ export class BulkStaffAttendanceDto {
   entries!: StaffAttendanceEntryDto[];
 }
 
+/** Monthly attendance grid: one month ("YYYY-MM"); sectionId for the student grid. */
+export class MonthGridQueryDto {
+  @ApiProperty({ example: '2026-10' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'month must be YYYY-MM' })
+  month!: string;
+
+  @ApiPropertyOptional({ description: 'Class section (student grid)' })
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+}
+
 /** Admin — student attendance records for reports. */
 export class AttendanceRecordsQueryDto {
   @ApiProperty({ example: '2026-10-01' })

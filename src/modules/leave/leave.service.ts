@@ -81,7 +81,7 @@ export class LeaveService {
   // -------- Teacher leave --------
 
   async createTeacherLeave(user: AuthUser, dto: CreateTeacherLeaveDto) {
-    if (user.role !== Role.TEACHER) throw new ForbiddenException();
+    if (user.role !== Role.TEACHER && user.role !== Role.STAFF) throw new ForbiddenException();
     const teacher = await this.teacherForUser(user.id);
     const { start, end } = this.validateLeaveDates(dto.startDate, dto.endDate);
     return this.prisma.teacherLeaveRequest.create({
@@ -99,7 +99,7 @@ export class LeaveService {
   }
 
   async listMyTeacherLeaves(user: AuthUser, query: ListLeavesDto) {
-    if (user.role !== Role.TEACHER) throw new ForbiddenException();
+    if (user.role !== Role.TEACHER && user.role !== Role.STAFF) throw new ForbiddenException();
     const teacher = await this.teacherForUser(user.id);
     const { skip, take, page, limit } = getSkipTake(query);
     const where = {

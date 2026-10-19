@@ -45,7 +45,7 @@ export class SalariesController {
     return this.svc.listPaymentsForTeacher(teacherId);
   }
 
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.STAFF)
   @Get('me/salary-payments')
   myPayments(@CurrentUser() user: AuthUser) {
     return this.svc.paymentsForTeacherUser(user.id);

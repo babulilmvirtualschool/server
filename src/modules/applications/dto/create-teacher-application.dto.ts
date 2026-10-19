@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Campus } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { Campus, StaffType } from '@prisma/client';
+import { IsEmail, IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateTeacherApplicationDto {
   @ApiPropertyOptional({
@@ -40,10 +40,23 @@ export class CreateTeacherApplicationDto {
   @MinLength(1)
   cnic!: string;
 
-  @ApiProperty({ description: 'e.g. Mathematics, Urdu' })
+  @ApiPropertyOptional({ enum: StaffType, description: 'Teaching (default) or Non-teaching job; non-teaching becomes a STAFF account on approval.' })
+  @IsOptional()
+  @IsEnum(StaffType)
+  staffType?: StaffType;
+
+  @ApiPropertyOptional({ description: 'Job title — required for non-teaching (e.g. Accountant, Guard)' })
+  @ValidateIf((o) => o.staffType === StaffType.NON_TEACHING)
+  @IsString()
+  @MinLength(2, { message: 'Enter the job title' })
+  @MaxLength(80)
+  designation?: string;
+
+  @ApiPropertyOptional({ description: 'e.g. Mathematics, Urdu — required for teaching applications' })
+  @ValidateIf((o) => o.staffType !== StaffType.NON_TEACHING || o.subjectExpertise != null)
   @IsString()
   @MinLength(1)
-  subjectExpertise!: string;
+  subjectExpertise?: string;
 
   @ApiProperty()
   @IsString()

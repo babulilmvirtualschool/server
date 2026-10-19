@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AttendanceMode, Prisma, SchoolShift } from '@prisma/client';
+import { AttendanceMode, Prisma, Role, SchoolShift } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ClosuresQueryDto,
@@ -212,17 +212,50 @@ export class AttendanceRulesService {
     return this.rule(date, day, s.lateThresholdMinutes, await this.closureOn(date, 'STUDENT'));
   }
 
-  /** The day's rule per teacher: their own timing if saved, else their shift / the school timings; closures for teachers. */
+  /**
+   * The day's rule per teacher / staff member: their own timing if saved, else the school timings;
+   * closures for teachers (TEACHER) or for non-teaching staff (STAFF).
+   */
   async staffDays(date: string, teacherIds: string[]): Promise<Record<string, DayRule>> {
     const s = await this.getSettings();
-    const closure = await this.closureOn(date, 'TEACHER');
-    const timings = await this.prisma.staffTiming.findMany({ where: { teacherId: { in: teacherIds } } });
+    const [teacherClosure, staffClosure] = await Promise.all([this.closureOn(date, 'TEACHER'), this.closureOn(date, 'STAFF')]);
+    const [timings, nonTeaching] = await Promise.all([
+      this.prisma.staffTiming.findMany({ where: { teacherId: { in: teacherIds } } }),
+      this.prisma.teacherProfile.findMany({ where: { id: { in: teacherIds }, user: { role: Role.STAFF } }, select: { id: true } }),
+    ]);
+    const staffIds = new Set(nonTeaching.map((p) => p.id));
     const weekday = weekdayOf(date);
     const out: Record<string, DayRule> = {};
     for (const id of teacherIds) {
       const t = timings.find((x) => x.teacherId === id);
       const days = t ? (t.days as unknown as Day[]) : s.schedules.DEFAULT;
+      const closure = staffIds.has(id) ? staffClosure : teacherClosure;
       out[id] = this.rule(date, days.find((d) => d.day === weekday), t?.lateThresholdMinutes ?? s.lateThresholdMinutes, closure);
+    }
+    return out;
+  }
+
+  /** Every date of a month ("YYYY-MM") as "YYYY-MM-DD". */
+  static monthDates(month: string): string[] {
+    const [y, m] = month.split('-').map(Number);
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return Array.from({ length: days }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
+  }
+
+  /** Monthly grid: the student rule for each day of the month (closed days are greyed out). */
+  async studentMonth(month: string, sectionId?: string | null): Promise<DayRule[]> {
+    const out: DayRule[] = [];
+    for (const date of AttendanceRulesService.monthDates(month)) out.push(await this.studentDay(date, sectionId));
+    return out;
+  }
+
+  /** Monthly grid for staff: per teacher / staff member, the rule of each day of the month. */
+  async staffMonth(month: string): Promise<Record<string, DayRule[]>> {
+    const ids = (await this.prisma.teacherProfile.findMany({ select: { id: true } })).map((t) => t.id);
+    const out: Record<string, DayRule[]> = Object.fromEntries(ids.map((id) => [id, []]));
+    for (const date of AttendanceRulesService.monthDates(month)) {
+      const day = await this.staffDays(date, ids);
+      for (const id of ids) out[id].push(day[id]);
     }
     return out;
   }

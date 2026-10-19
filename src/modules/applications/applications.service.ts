@@ -6,6 +6,7 @@ import {
 import {
   AdmissionApplicationStatus,
   Campus,
+  StaffType,
   TeacherApplicationStatus,
 } from '@prisma/client';
 import { nanoid } from 'nanoid';
@@ -235,7 +236,9 @@ export class ApplicationsService {
         email: emailRaw.toLowerCase(),
         city: dto.city.trim(),
         cnic: dto.cnic.trim(),
-        subjectExpertise: dto.subjectExpertise.trim(),
+        staffType: dto.staffType ?? StaffType.TEACHING,
+        designation: dto.staffType === StaffType.NON_TEACHING ? dto.designation?.trim() || null : null,
+        subjectExpertise: dto.subjectExpertise?.trim() || null,
         highestQualification: dto.highestQualification.trim(),
         teachingExperience: dto.teachingExperience.trim(),
         currentWorkplace: dto.currentWorkplace?.trim() || null,
@@ -263,7 +266,7 @@ export class ApplicationsService {
 
   async listTeachers(query: ListTeacherApplicationsDto) {
     const { skip, take, page, limit } = getSkipTake(query);
-    const where = query.search
+    const search = query.search
       ? {
           OR: [
             {
@@ -285,9 +288,11 @@ export class ApplicationsService {
               },
             },
             { cnic: { contains: query.search, mode: 'insensitive' as const } },
+            { designation: { contains: query.search, mode: 'insensitive' as const } },
           ],
         }
       : {};
+    const where = { ...search, ...(query.staffType ? { staffType: query.staffType } : {}) };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.teacherApplication.count({ where }),
       this.prisma.teacherApplication.findMany({

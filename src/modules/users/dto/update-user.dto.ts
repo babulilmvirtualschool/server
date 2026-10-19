@@ -57,6 +57,12 @@ export class UpdateTeacherProfileDto {
   @MaxLength(120)
   teachingExperience?: string;
 
+  @ApiPropertyOptional({ description: 'Job title (non-teaching staff)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  designation?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

@@ -15,8 +15,10 @@ import { Role } from '@prisma/client';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
+  AddCertificateDto,
   CreateAdminDto,
   CreateParentDto,
+  CreateStaffDto,
   CreateStudentDto,
   CreateTeacherDto,
   ParentChildLinkDto,
@@ -115,8 +117,9 @@ export class UsersController {
   suggestManualTeacherCreate(
     @Query('firstName') firstName: string,
     @Query('lastName') lastName: string,
+    @Query('staff') staff?: string,
   ) {
-    return this.users.suggestManualTeacherCreate(firstName ?? '', lastName ?? '');
+    return this.users.suggestManualTeacherCreate(firstName ?? '', lastName ?? '', staff === 'true');
   }
 
   @Roles(Role.ADMIN)
@@ -141,6 +144,30 @@ export class UsersController {
   @Post('teachers')
   createTeacher(@Body() dto: CreateTeacherDto) {
     return this.users.createTeacher(dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('staff')
+  createStaff(@Body() dto: CreateStaffDto) {
+    return this.users.createStaff(dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Post(':id/certificates')
+  addCertificate(@Param('id') id: string, @Body() dto: AddCertificateDto) {
+    return this.users.addCertificate(id, dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Delete(':id/certificates')
+  removeCertificate(@Param('id') id: string, @Query('key') key: string) {
+    return this.users.removeCertificate(id, key);
+  }
+
+  @Roles(Role.STAFF, Role.TEACHER)
+  @Get('me/certificates')
+  myCertificates(@CurrentUser() user: AuthUser) {
+    return this.users.certificatesOf(user.id);
   }
 
   @Roles(Role.ADMIN)

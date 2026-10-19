@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (22) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 3 `20261017103145_attendance_settings_closures`.
+- Migrations (23) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 4 `20261019074622_non_teaching_staff_alerts`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -143,7 +143,7 @@ Patterns to copy:
   `avatarKey` from STUDENT_PHOTO and copies the other documents to `StudentProfile.documents`; faculty approval sets the teacher's `avatarKey`.
 - Day 2 (2026-10-16, migration `..._promote_graduated_message_templates`, additive): `StudentProfile.graduatedAt` (set by Promote → Graduated,
   whose enrollments become `GRADUATED`); `MessageTemplate` (campus column → in the middleware `DIRECT` set; `kind` = ABSENCE | LATE | LEAVE |
-  ATTENDANCE_ALERT | GENERAL_NOTICE, name, body with {student} {class} {date} {percent} {period} {absent} {school}).
+  ATTENDANCE_ALERT | GENERAL_NOTICE | EMERGENCY | SECURITY, name, body with {student} {class} {date} {percent} {period} {absent} {school}).
 - Day 3 (2026-10-17, migration `20261017103145_attendance_settings_closures`, additive): `AttendanceSettings` (one per school, campus `@unique`, in `DIRECT`: mode DEFAULT|SHIFTS,
   `lateThresholdMinutes` (25), `schedules` Json {DEFAULT, MORNING, EVENING: Day[7]} with Day = {day, open, start "HH:mm", end}); until saved the
   service returns defaults (Mon–Sat 08:00–14:00, Sunday closed). `Section.shift` (MORNING|EVENING|null) picks the shift timings in Shifts mode.
@@ -151,6 +151,13 @@ Patterns to copy:
   fromDate/toDate `@db.Date`, note). `AttendanceRecord.arrivalTime` / `TeacherAttendanceRecord.arrivalTime` ("HH:mm"). Rules live in
   `attendance/attendance-rules.service.ts`: student marking (bulk, homeroom or period) and staff marking (admin bulk, teacher self) are refused on
   closed weekdays and closures for their group (staff ON_LEAVE still allowed); with an arrival time, PRESENT/LATE is decided by start + threshold.
+- Day 4 (2026-10-19, migration `20261019074622_non_teaching_staff_alerts`, additive): `Role.STAFF` = **non-teaching staff** (accounts, office,
+  guards…). They use a `TeacherProfile` (employee code `STF00001…`, `designation` = job title) so staff attendance, per-staff timings, closures,
+  leave and salary work exactly like teachers'; course/class-teacher pickers stay teacher-only (they list `role=TEACHER`). `TeacherProfile.documents`
+  (Json `[{key, name, fileName, mimeType, uploadedAt}]`) = **certificates** the admin uploads (media purpose OTHER, PDF/JPG/PNG/WebP ≤10 MB, max 30).
+  `TeacherApplication.staffType` (TEACHING | NON_TEACHING, default TEACHING) + `designation`; `subjectExpertise` is now nullable (required for
+  teaching only). Approving a NON_TEACHING application creates a STAFF user. School closures "STAFF" apply to role STAFF, "TEACHER" to teachers
+  (`AttendanceRulesService.staffDays`). `MessageTemplateKind` gained EMERGENCY and SECURITY (Emergency alerts quick templates).
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -180,6 +187,9 @@ age from date of birth, `hasPhoto` = true|false on `avatarKey`; search also matc
 · `GET users/students/export` (same filters + optional `sectionId` = actively enrolled there, no paging, max 5000: admission no., class/section/roll, contacts, father/mother/guardian
 with phone + CNIC — feeds the All Students downloads and the Strength report) · `GET users/teachers/create-suggestions?firstName&lastName`
 · `GET users/:id` (adds `parentLinks` for students / `childLinks` for parents) · `GET users/:id/delete-impact`
+· `POST users/staff` (non-teaching: `{firstName, lastName, username|email, password, designation, employeeCode? (auto STF…), phone?, cnic?, city?,
+qualification?, joiningDate?, teachingExperience?, bio?}` → role STAFF) · `POST users/:id/certificates` A (`{key, name}`) · `DELETE users/:id/certificates?key=` A
+· `GET users/me/certificates` STAFF,T · `GET users/teachers/create-suggestions?…&staff=true` suggests an STF code
 · `POST users/admins|teachers|students|parents` (teachers also take `city`, `teachingExperience`, `currentWorkplace`, `cvKey` +
 `cvOriginalName` — the online faculty-form fields, stored on `TeacherProfile` since migration `20261011104901_teacher_profile_application_fields`;
 approving a faculty application copies them, plus the application CV, instead of writing them into `bio`)
@@ -202,7 +212,7 @@ remarks?}`; 409 if one is already discharged) · `GET users/students/discharged?
 (create admin/teacher/student/parent, with-parents, approvals, `PATCH users/:id/password`) is stored viewable.
 · `POST users/parents/:userId/children` · `DELETE users/parents/:userId/children/:linkId` · `PATCH users/:id`
 · `PATCH users/:id/password` · `POST users/:id/activate|deactivate` · `DELETE users/:id` (blocked if impact has blockers → 409).
-"Staff" in the web UI = users with role ADMIN.
+"Admins" in the web UI = users with role ADMIN (the page was called "Staff" before Day 4); "Non-teaching staff" = role STAFF.
 
 **applications** — public: `POST applications/admissions` (optional `documents`, one per kind, keys from their own upload folder),
 `POST applications/uploads/presign` (`{kind, mimeType, size, originalName?}`; photos jpeg/png/webp ≤5 MB, documents also pdf ≤10 MB),
@@ -214,7 +224,7 @@ approval keeps gender/blood group/class-curriculum-shift-guardian lines and, whe
 student in the same transaction — roll taken meanwhile → 409, nothing created; columns added by `20261012074309_admission_application_admin_fields`)
 · `POST applications/teachers/manual` (Add teacher → "Pending Enrolled": the faculty-form fields (CV via `teachers/cv-presign`) + `gender`,
 `dateOfBirth`, `joiningDate`, `bio`; approval copies them to the user/profile — migration `20261012075038_teacher_application_admin_fields`)
-· `GET applications/teachers?search&page` · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
+· `GET applications/teachers?search&page&staffType=TEACHING|NON_TEACHING` (website form sends `staffType` + `designation` for non-teaching) · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
 · `PATCH applications/teachers/:id` (`{status, teacherUsername, teacherPassword, employeeCode}`). PATCH responses are `{data, meta:{accountsProvisioned}}`.
 Approval provisions accounts in one transaction (admission: student `ADM-<year>-<hex>` + father + mother, father primary;
 teacher: employee code `TCH00001`…). Re-approving an already provisioned application just sets status.
@@ -272,10 +282,14 @@ auth: `GET exams?academicYearId`, `GET exams/:id` (papers ordered by `scheduledA
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,
 `GET attendance/reports?courseId&date`, `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
-S: `GET me/attendance?from&to` (`{total, counts, records}`); T: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
+S: `GET me/attendance?from&to` (`{total, counts, records}`); T,STAFF: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
 A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
 `GET attendance/day-overview?date` A (every current-year class: `{sectionId, label, students, marked, complete, rule}`; closed days count as complete),
+`GET attendance/month?month=YYYY-MM&sectionId` A (monthly grid: `{month, label, dates, rules, students:[{studentId, name, avatarKey, rollNumber,
+records:{date:{status, arrivalTime}}}]}`, current-year active students, whole-day records), `GET attendance/staff-month?month` A (`{month, dates,
+staff:[{teacherId, name, role, designation, employeeCode, rules:[{closed, lateAfter}], records:{date:{status, arrivalTime, approvalStatus}}}]}`, teachers first;
+the web grid saves changed cells per day through `attendance/bulk` / `teacher-attendance/bulk`),
 `GET attendance/day-info?date&sectionId?` A,T (`{closed, start, end, lateThresholdMinutes, lateAfter}`), `GET attendance/staff-day-info?date` A
 (TeacherProfile.id → same), `GET attendance/summary?from&to&sectionId?` (whole-day records per student: counts, total, `percent` = (Present+Late)/marked, class/roll,
 father/mother name + phone; lowest % first — feeds the WhatsApp % alert), `GET attendance/records?from&to&sectionId&courseId&studentId&kind=DAILY|PERIOD` (flattened student records with roll number,
@@ -283,7 +297,7 @@ class label and subject; max 5000; feeds the admin combined report),
 `GET teacher-attendance?approvalStatus&teacherId&from&to` (`{total, counts, records}`, max 1000), `PATCH teacher-attendance/:id`
 (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING).
 
-**leave** — T: `POST|GET me/teacher-leaves`, `GET me/class-student-leaves?status&page` (leave of students actively enrolled in sections the
+**leave** — T,STAFF: `POST|GET me/teacher-leaves`; T:, `GET me/class-student-leaves?status&page` (leave of students actively enrolled in sections the
 teacher teaches or is class teacher of); S: `POST|GET me/student-leaves`; A: `GET teacher-leaves?status`, `PATCH teacher-leaves/:id`,
 `GET student-leaves?status`, `PATCH student-leaves/:id` (`{status: APPROVED|REJECTED, reviewNote?}`; only PENDING can be reviewed).
 Approval writes attendance: teacher → `ON_LEAVE` per day; student → `EXCUSED` homeroom + every course of each active enrollment per day —
@@ -295,7 +309,7 @@ only on open days (closed weekdays, the teacher's own off days and closures are 
 A,T: `GET fee-structures?classId&academicYearId`; S: `GET me/invoices`; P: `GET me/children/invoices`.
 
 **salaries** — A: `POST salary-structures`, `GET teachers/:teacherId/salary-structures`, `POST salary-payments` (upsert per teacher+period),
-`GET teachers/:teacherId/salary-payments`; T: `GET me/salary-payments`.
+`GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/salary-payments`.
 
 **timetable** — A: `POST timetable-slots`, `PATCH|DELETE timetable-slots/:id`; auth: `GET sections/:sectionId/timetable`;
 T,S: `GET me/timetable` → `{role, days, slots}`. A slot has no teacher of its own: its teacher is always the course's teacher

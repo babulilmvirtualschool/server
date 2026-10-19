@@ -18,7 +18,7 @@ import { LeaveService } from './leave.service';
 export class LeaveController {
   constructor(private readonly leave: LeaveService) {}
 
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.STAFF)
   @Post('me/teacher-leaves')
   createTeacherLeave(
     @CurrentUser() user: AuthUser,
@@ -27,7 +27,7 @@ export class LeaveController {
     return this.leave.createTeacherLeave(user, dto);
   }
 
-  @Roles(Role.TEACHER)
+  @Roles(Role.TEACHER, Role.STAFF)
   @Get('me/teacher-leaves')
   myTeacherLeaves(@CurrentUser() user: AuthUser, @Query() q: ListLeavesDto) {
     return this.leave.listMyTeacherLeaves(user, q);

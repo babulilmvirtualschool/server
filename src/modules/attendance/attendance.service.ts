@@ -14,6 +14,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
   AttendanceRecordsQueryDto,
   BulkStaffAttendanceDto,
+  MonthGridQueryDto,
 } from './dto/attendance-admin.dto';
 import { BulkMarkAttendanceDto } from './dto/attendance.dto';
 import {
@@ -347,7 +348,7 @@ export class AttendanceService {
   }
 
   async markTeacherSelf(user: AuthUser, dto: MarkTeacherAttendanceDto) {
-    if (user.role !== Role.TEACHER) throw new ForbiddenException();
+    if (user.role !== Role.TEACHER && user.role !== Role.STAFF) throw new ForbiddenException();
     const teacher = await this.prisma.teacherProfile.findUnique({
       where: { userId: user.id },
     });
@@ -394,7 +395,7 @@ export class AttendanceService {
   }
 
   async listTeacherSelf(user: AuthUser, from?: string, to?: string) {
-    if (user.role !== Role.TEACHER) throw new ForbiddenException();
+    if (user.role !== Role.TEACHER && user.role !== Role.STAFF) throw new ForbiddenException();
     const teacher = await this.prisma.teacherProfile.findUnique({
       where: { userId: user.id },
     });
@@ -509,6 +510,88 @@ export class AttendanceService {
         });
       }),
     );
+  }
+
+  /** Monthly grid for one class: active students (current year) × days, whole-day records and the day rules. */
+  async studentMonthGrid(q: MonthGridQueryDto) {
+    if (!q.sectionId) throw new BadRequestException({ message: 'Choose a class.', fields: { sectionId: 'Required' } });
+    const section = await this.prisma.section.findUnique({
+      where: { id: q.sectionId },
+      select: { id: true, name: true, class: { select: { name: true } } },
+    });
+    if (!section) throw new NotFoundException('Class not found');
+    const dates = AttendanceRulesService.monthDates(q.month);
+    const [enrollments, records, rules] = await Promise.all([
+      this.prisma.studentEnrollment.findMany({
+        where: { sectionId: section.id, status: 'ACTIVE', academicYear: { isCurrent: true } },
+        select: {
+          rollNumber: true,
+          student: { select: { id: true, user: { select: { firstName: true, lastName: true, avatarKey: true } } } },
+        },
+      }),
+      this.prisma.attendanceRecord.findMany({
+        where: { sectionId: section.id, courseId: null, date: { gte: parseDateOnly(dates[0]), lte: parseDateOnly(dates[dates.length - 1]) } },
+        select: { studentId: true, date: true, status: true, arrivalTime: true },
+      }),
+      this.rules.studentMonth(q.month, section.id),
+    ]);
+    const byStudent = new Map<string, Record<string, { status: string; arrivalTime: string | null }>>();
+    for (const r of records) {
+      const m = byStudent.get(r.studentId) ?? {};
+      m[r.date.toISOString().slice(0, 10)] = { status: r.status, arrivalTime: r.arrivalTime };
+      byStudent.set(r.studentId, m);
+    }
+    const students = enrollments
+      .map((e) => ({
+        studentId: e.student.id,
+        name: `${e.student.user.firstName} ${e.student.user.lastName}`.trim(),
+        avatarKey: e.student.user.avatarKey,
+        rollNumber: e.rollNumber,
+        records: byStudent.get(e.student.id) ?? {},
+      }))
+      .sort((a, b) => (a.rollNumber ?? '').localeCompare(b.rollNumber ?? '', undefined, { numeric: true }) || a.name.localeCompare(b.name));
+    return { month: q.month, label: `${section.class.name} · ${section.name}`, dates, rules, students };
+  }
+
+  /** Monthly grid for staff: every teacher and non-teaching staff member × days (approved and pending records). */
+  async staffMonthGrid(month: string) {
+    const dates = AttendanceRulesService.monthDates(month);
+    const [people, records, rules] = await Promise.all([
+      this.prisma.teacherProfile.findMany({
+        where: { user: { isActive: true } },
+        select: {
+          id: true,
+          employeeCode: true,
+          designation: true,
+          user: { select: { firstName: true, lastName: true, avatarKey: true, role: true } },
+        },
+      }),
+      this.prisma.teacherAttendanceRecord.findMany({
+        where: { date: { gte: parseDateOnly(dates[0]), lte: parseDateOnly(dates[dates.length - 1]) } },
+        select: { teacherId: true, date: true, status: true, arrivalTime: true, approvalStatus: true },
+      }),
+      this.rules.staffMonth(month),
+    ]);
+    const byPerson = new Map<string, Record<string, { status: string; arrivalTime: string | null; approvalStatus: string }>>();
+    for (const r of records) {
+      const m = byPerson.get(r.teacherId) ?? {};
+      m[r.date.toISOString().slice(0, 10)] = { status: r.status, arrivalTime: r.arrivalTime, approvalStatus: r.approvalStatus };
+      byPerson.set(r.teacherId, m);
+    }
+    const staff = people
+      .map((p) => ({
+        teacherId: p.id,
+        name: `${p.user.firstName} ${p.user.lastName}`.trim(),
+        avatarKey: p.user.avatarKey,
+        employeeCode: p.employeeCode,
+        role: p.user.role,
+        designation: p.designation,
+        rules: (rules[p.id] ?? []).map((r) => ({ closed: r.closed, lateAfter: r.lateAfter })),
+        records: byPerson.get(p.id) ?? {},
+      }))
+      // Teachers first, then non-teaching staff; by name within each.
+      .sort((a, b) => Number(a.role !== Role.TEACHER) - Number(b.role !== Role.TEACHER) || a.name.localeCompare(b.name));
+    return { month, dates, staff };
   }
 
   /**
