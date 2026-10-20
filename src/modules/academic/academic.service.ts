@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Campus } from '@prisma/client';
+import { AcademicYearStatus, Campus, ContentProgress, Role } from '@prisma/client';
+import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateAcademicYearDto,
@@ -31,9 +33,17 @@ export class AcademicService {
       if (dto.isCurrent) {
         await tx.academicYear.updateMany({ data: { isCurrent: false } });
       }
+      if (new Date(dto.endDate) <= new Date(dto.startDate)) {
+        throw new BadRequestException({ message: 'The end date must be after the start date.', fields: { endDate: 'Must be after the start date' } });
+      }
+      if (dto.isCurrent && dto.status === AcademicYearStatus.ARCHIVED) {
+        throw new BadRequestException({ message: 'An archived year can\'t be the current year.', fields: { status: 'Current year must be Active' } });
+      }
       return tx.academicYear.create({
         data: {
           name: dto.name,
+          code: dto.code?.trim() || null,
+          status: dto.status ?? AcademicYearStatus.ACTIVE,
           startDate: new Date(dto.startDate),
           endDate: new Date(dto.endDate),
           isCurrent: dto.isCurrent ?? false,
@@ -53,6 +63,18 @@ export class AcademicService {
   }
 
   async updateYear(id: string, dto: UpdateAcademicYearDto) {
+    const existing = await this.prisma.academicYear.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Academic year not found');
+    const status = dto.status ?? existing.status;
+    const isCurrent = dto.isCurrent ?? existing.isCurrent;
+    if (isCurrent && status === AcademicYearStatus.ARCHIVED) {
+      throw new BadRequestException({ message: 'The current year can\'t be archived. Make another year current first.', fields: { status: 'Current year must be Active' } });
+    }
+    const start = dto.startDate ? new Date(dto.startDate) : existing.startDate;
+    const end = dto.endDate ? new Date(dto.endDate) : existing.endDate;
+    if (end <= start) {
+      throw new BadRequestException({ message: 'The end date must be after the start date.', fields: { endDate: 'Must be after the start date' } });
+    }
     return this.prisma.$transaction(async (tx) => {
       if (dto.isCurrent) {
         await tx.academicYear.updateMany({ data: { isCurrent: false } });
@@ -61,6 +83,7 @@ export class AcademicService {
         where: { id },
         data: {
           ...dto,
+          ...(dto.code !== undefined ? { code: dto.code?.trim() || null } : {}),
           startDate: dto.startDate ? new Date(dto.startDate) : undefined,
           endDate: dto.endDate ? new Date(dto.endDate) : undefined,
         },
@@ -120,22 +143,54 @@ export class AcademicService {
   }
 
   // -------- Subjects --------
+  private checkMarks(total?: number | null, passing?: number | null) {
+    if (total != null && passing != null && passing > total) {
+      throw new BadRequestException({ message: 'Passing marks can\'t be more than total marks.', fields: { passingMarks: 'More than total marks' } });
+    }
+  }
+
   createSubject(dto: CreateSubjectDto) {
-    return this.prisma.subject.create({ data: dto });
+    this.checkMarks(dto.totalMarks, dto.passingMarks);
+    return this.prisma.subject.create({ data: { ...dto, code: dto.code?.trim() || null } });
   }
   listSubjects() {
     return this.prisma.subject.findMany({ orderBy: { name: 'asc' } });
   }
-  updateSubject(id: string, dto: UpdateSubjectDto) {
-    return this.prisma.subject.update({ where: { id }, data: dto });
+  async updateSubject(id: string, dto: UpdateSubjectDto) {
+    const s = await this.prisma.subject.findUnique({ where: { id } });
+    if (!s) throw new NotFoundException('Subject not found');
+    this.checkMarks(dto.totalMarks !== undefined ? dto.totalMarks : s.totalMarks, dto.passingMarks !== undefined ? dto.passingMarks : s.passingMarks);
+    return this.prisma.subject.update({
+      where: { id },
+      data: { ...dto, ...(dto.code !== undefined ? { code: dto.code?.trim() || null } : {}) },
+    });
   }
   deleteSubject(id: string) {
     return this.prisma.subject.delete({ where: { id } });
   }
 
   // -------- Courses --------
-  createCourse(dto: CreateCourseDto) {
-    return this.prisma.course.create({ data: dto });
+  /** Admin: any teacher. Teacher ("My Course → Add course"): always themselves; deleting stays admin-only. */
+  async createCourse(dto: CreateCourseDto, user: AuthUser) {
+    let teacherId = dto.teacherId;
+    if (user.role === Role.TEACHER) {
+      const me = await this.prisma.teacherProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+      if (!me) throw new ForbiddenException('Teacher profile not found');
+      teacherId = me.id;
+    } else {
+      if (!teacherId) throw new BadRequestException({ message: 'Choose a teacher.', fields: { teacherId: 'Required' } });
+      const t = await this.prisma.teacherProfile.findFirst({ where: { id: teacherId, user: { role: Role.TEACHER } }, select: { id: true } });
+      if (!t) throw new BadRequestException({ message: 'Teacher not found', fields: { teacherId: 'Choose a teacher' } });
+    }
+    await this.assertSectionInYear(dto.sectionId, dto.academicYearId);
+    const exists = await this.prisma.course.findFirst({
+      where: { subjectId: dto.subjectId, sectionId: dto.sectionId, academicYearId: dto.academicYearId },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException({ message: 'This class already has this subject.', fields: { subjectId: 'Already added for this class' } });
+    }
+    return this.prisma.course.create({ data: { ...dto, teacherId } });
   }
 
   listCourses(filters: {
@@ -158,9 +213,25 @@ export class AcademicService {
         section: { include: { class: true } },
         teacher: { include: { user: { select: publicUserSelect } } },
         academicYear: true,
+        lessons: { select: { progress: true, topics: { select: { progress: true } } } },
       },
       orderBy: { createdAt: 'desc' },
-    });
+    }).then((rows) => rows.map(({ lessons, ...c }) => ({ ...c, progress: AcademicService.progressOf(lessons) })));
+  }
+
+  /** Lesson-plan progress for the admin: topics (or lessons without topics) by Pending / In progress / Complete. */
+  static progressOf(lessons: { progress: ContentProgress; topics: { progress: ContentProgress }[] }[]) {
+    const items = lessons.flatMap((l) => (l.topics.length ? l.topics : [l]));
+    const count = (p: ContentProgress) => items.filter((i) => i.progress === p).length;
+    const complete = count(ContentProgress.COMPLETE);
+    return {
+      lessons: lessons.length,
+      items: items.length,
+      complete,
+      inProgress: count(ContentProgress.IN_PROGRESS),
+      pending: count(ContentProgress.PENDING),
+      percent: items.length ? Math.round((complete / items.length) * 100) : 0,
+    };
   }
 
   async getCourse(id: string) {
@@ -261,14 +332,16 @@ export class AcademicService {
       where: { userId: teacherUserId },
     });
     if (!teacher) throw new NotFoundException('Teacher profile not found');
-    return this.prisma.course.findMany({
+    const rows = await this.prisma.course.findMany({
       where: { teacherId: teacher.id },
       include: {
         subject: true,
         section: { include: { class: true } },
         academicYear: true,
+        lessons: { select: { progress: true, topics: { select: { progress: true } } } },
       },
     });
+    return rows.map(({ lessons, ...c }) => ({ ...c, progress: AcademicService.progressOf(lessons) }));
   }
 
   // -------- Enrollments --------

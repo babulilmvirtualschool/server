@@ -20,6 +20,7 @@ const DIRECT = new Set([
   'MessageTemplate',
   'AttendanceSettings',
   'SchoolClosure',
+  'TimetablePeriod',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -78,6 +79,8 @@ const VIA: Record<string, Scope> = {
   BankQuestion: (c) => ({ subject: { campus: c } }),
   StudentDischarge: student,
   StaffTiming: teacher,
+  PeriodAttendance: teacher,
+  PeriodLeaveRequest: teacher,
 };
 
 /**

@@ -32,7 +32,7 @@ import {
   ParentChildLinkDto,
 } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
+import { ExportStudentsDto, ListUsersDto, LoginSlipsQueryDto } from './dto/list-users.dto';
 import { CreateStudentWithParentsDto } from './dto/create-student-with-parents.dto';
 import { UpdateStudentRecordDto } from './dto/update-student-record.dto';
 
@@ -84,6 +84,90 @@ export class UsersService {
     const password = this.vault.open(u.issuedPasswordEnc);
     const { issuedPasswordEnc: _enc, ...rest } = u;
     return { ...rest, password, passwordSetByUser: !u.issuedPasswordEnc };
+  }
+
+  /**
+   * Admin: login slips for every active user of a role (optionally a search and, for students, a class) — the issued
+   * password while the user hasn't set their own. Max 1000, sorted by class/roll for students, else by name.
+   */
+  async loginSlips(q: LoginSlipsQueryDto) {
+    const s = q.search?.trim();
+    const where: Prisma.UserWhereInput = {
+      role: q.role,
+      isActive: true,
+      ...(s
+        ? {
+            OR: [
+              { firstName: { contains: s, mode: 'insensitive' } },
+              { lastName: { contains: s, mode: 'insensitive' } },
+              { username: { contains: s, mode: 'insensitive' } },
+              { email: { contains: s, mode: 'insensitive' } },
+              { studentProfile: { admissionNo: { contains: s, mode: 'insensitive' } } },
+              { teacherProfile: { employeeCode: { contains: s, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+      ...(q.role === Role.STUDENT && q.sectionId
+        ? { studentProfile: { enrollments: { some: { sectionId: q.sectionId, status: 'ACTIVE' } } } }
+        : {}),
+    };
+    const users = await this.prisma.user.findMany({
+      where,
+      take: 1000,
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+        email: true,
+        role: true,
+        issuedPasswordEnc: true,
+        studentProfile: {
+          select: {
+            admissionNo: true,
+            enrollments: {
+              where: { status: 'ACTIVE', academicYear: { isCurrent: true } },
+              take: 1,
+              select: { rollNumber: true, section: { select: { name: true, class: { select: { name: true, level: true } } } } },
+            },
+          },
+        },
+        teacherProfile: { select: { employeeCode: true, designation: true } },
+        parentProfile: {
+          select: { children: { take: 6, select: { student: { select: { user: { select: { firstName: true, lastName: true } } } } } } },
+        },
+      },
+    });
+    const rows = users.map((u) => {
+      const e = u.studentProfile?.enrollments[0];
+      return {
+        id: u.id,
+        name: `${u.firstName} ${u.lastName}`.trim(),
+        username: u.username,
+        email: u.email,
+        role: u.role,
+        password: this.vault.open(u.issuedPasswordEnc),
+        passwordSetByUser: !u.issuedPasswordEnc,
+        admissionNo: u.studentProfile?.admissionNo ?? null,
+        classLabel: e ? `${e.section.class.name} · ${e.section.name}` : null,
+        rollNumber: e?.rollNumber ?? null,
+        level: e?.section.class.level ?? null,
+        employeeCode: u.teacherProfile?.employeeCode ?? null,
+        designation: u.teacherProfile?.designation ?? null,
+        children: (u.parentProfile?.children ?? []).map((c) => `${c.student.user.firstName} ${c.student.user.lastName}`.trim()),
+      };
+    });
+    if (q.role === Role.STUDENT) {
+      rows.sort(
+        (a, b) =>
+          (a.level ?? 999) - (b.level ?? 999) ||
+          (a.classLabel ?? '').localeCompare(b.classLabel ?? '') ||
+          (a.rollNumber ?? '').localeCompare(b.rollNumber ?? '', undefined, { numeric: true }) ||
+          a.name.localeCompare(b.name),
+      );
+    }
+    return rows.map(({ level: _l, ...r }) => r);
   }
 
   /** Set or remove a user's photo (the key must be the actor's own finished photo upload). */

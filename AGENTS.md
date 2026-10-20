@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (23) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 4 `20261019074622_non_teaching_staff_alerts`.
+- Migrations (24) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 5 `20261020062527_academic_setup_periods_substitutes`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -158,6 +158,20 @@ Patterns to copy:
   `TeacherApplication.staffType` (TEACHING | NON_TEACHING, default TEACHING) + `designation`; `subjectExpertise` is now nullable (required for
   teaching only). Approving a NON_TEACHING application creates a STAFF user. School closures "STAFF" apply to role STAFF, "TEACHER" to teachers
   (`AttendanceRulesService.staffDays`). `MessageTemplateKind` gained EMERGENCY and SECURITY (Emergency alerts quick templates).
+- Day 5 (2026-10-20, migration `20261020062527_academic_setup_periods_substitutes`, additive): `AcademicYear.code` + `status` (ACTIVE | ARCHIVED; the
+  current year can't be archived, end after start), `Section.capacity` (room already existed), `Subject.type` (THEORY | PRACTICAL), `category`
+  (CORE | ELECTIVE), `totalMarks` / `passingMarks` (passing ≤ total), `Course.weeklyHours` (weekly credit hours = periods per week).
+  `TimetablePeriod` (DIRECT campus: name, start/end, isBreak, orderIndex = start minutes; no overlaps; changing its time moves its slots) and
+  `TimetableSlot.periodId` (times copied from the period; room double-booking is refused like teacher/section clashes). **Auto-Generate**
+  (`TimetableService.autoGenerate`): courses' weekly hours over the open days (attendance settings DEFAULT) × non-break periods, at most
+  ceil(hours/days) per day, never two classes for a teacher or room (other classes' slots count as busy); preview, then apply replaces those
+  classes' slots (same course+day+start reused, old slots with period attendance/leave are deactivated, others deleted).
+  `PeriodAttendance` (VIA teacher: slot + date unique, scheduled teacher, status = TeacherAttendanceStatus, substitute, remarks) and
+  `PeriodLeaveRequest` (VIA teacher: slot, date, reason, status, substitute, reviewNote) — `timetable/period-attendance.service.ts`: a period
+  without a mark takes its status from the teacher's approved day record (Late → Present); a substitute must be another active teacher who is
+  not off / absent / on leave that day, has no own class and no other substitution then. `Lesson.progress` / `Topic.progress`
+  (ContentProgress PENDING | IN_PROGRESS | COMPLETE): teacher's lesson-plan buttons; `GET courses` and `me/courses` add
+  `progress {lessons, items, complete, inProgress, pending, percent}` (topics, or lessons without topics).
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -190,6 +204,7 @@ with phone + CNIC — feeds the All Students downloads and the Strength report) 
 · `POST users/staff` (non-teaching: `{firstName, lastName, username|email, password, designation, employeeCode? (auto STF…), phone?, cnic?, city?,
 qualification?, joiningDate?, teachingExperience?, bio?}` → role STAFF) · `POST users/:id/certificates` A (`{key, name}`) · `DELETE users/:id/certificates?key=` A
 · `GET users/me/certificates` STAFF,T · `GET users/teachers/create-suggestions?…&staff=true` suggests an STF code
+· `GET users/login-slips?role&search&sectionId` A (active users of one role, issued passwords, class/roll/adm no. or code/job title or children; max 1000)
 · `POST users/admins|teachers|students|parents` (teachers also take `city`, `teachingExperience`, `currentWorkplace`, `cvKey` +
 `cvOriginalName` — the online faculty-form fields, stored on `TeacherProfile` since migration `20261011104901_teacher_profile_application_fields`;
 approving a faculty application copies them, plus the application CV, instead of writing them into `bio`)
@@ -224,13 +239,13 @@ approval keeps gender/blood group/class-curriculum-shift-guardian lines and, whe
 student in the same transaction — roll taken meanwhile → 409, nothing created; columns added by `20261012074309_admission_application_admin_fields`)
 · `POST applications/teachers/manual` (Add teacher → "Pending Enrolled": the faculty-form fields (CV via `teachers/cv-presign`) + `gender`,
 `dateOfBirth`, `joiningDate`, `bio`; approval copies them to the user/profile — migration `20261012075038_teacher_application_admin_fields`)
-· `GET applications/teachers?search&page&staffType=TEACHING|NON_TEACHING` (website form sends `staffType` + `designation` for non-teaching) · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
+· `GET applications/teachers?search&page&staffType=TEACHING|NON_TEACHING&status=PENDING|APPROVED|REJECTED` (website form sends `staffType` + `designation` for non-teaching) · `GET applications/teachers/:id/provision-suggestions` · `GET applications/teachers/:id/cv-download`
 · `PATCH applications/teachers/:id` (`{status, teacherUsername, teacherPassword, employeeCode}`). PATCH responses are `{data, meta:{accountsProvisioned}}`.
 Approval provisions accounts in one transaction (admission: student `ADM-<year>-<hex>` + father + mother, father primary;
 teacher: employee code `TCH00001`…). Re-approving an already provisioned application just sets status.
 
 **academic** — public: `GET public/classes?campus=ONLINE|PHYSICAL` (current-year class names, website admission form).
-Reads: auth; writes: A. `academic-years` (+ `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
+Reads: auth; writes: A (except `POST courses` A,T — a teacher always adds the course for themselves; delete stays A). `academic-years` (`code`, `status`; + `GET academic-years/current`) · `classes?academicYearId` · `sections?classId`
 · `GET sections/:id` (with enrollments) · `subjects` · `courses?sectionId&teacherId&academicYearId&subjectId` · `GET courses/:id`
 · `GET courses/:id/delete-impact` A (`{counts, canDelete, blockers}`) · `DELETE courses/:id` refused (409) while the course has attendance,
 submissions, test attempts or exam papers; `PATCH courses/:id` checks `teacherId` (400 `fields.teacherId`)
@@ -247,6 +262,7 @@ submissions, test attempts or exam papers; `PATCH courses/:id` checks `teacherId
 **content** — `GET courses/:courseId/lessons` (tree: lessons→topics→contents) and `GET courses/:courseId/syllabus` (auth);
 A,T(owner): `POST courses/:courseId/lessons`, `PATCH|DELETE lessons/:id`, `POST lessons/:lessonId/topics`, `PATCH|DELETE topics/:id`,
 `POST topics/:topicId/content`, `PATCH|DELETE content/:id`, `PUT courses/:courseId/syllabus` (sections array replaces all).
+`PATCH lessons/:id` / `topics/:id` also take `progress` (PENDING | IN_PROGRESS | COMPLETE).
 `VIDEO_YOUTUBE` requires `youtubeUrl` → server derives `youtubeId`; `DOCUMENT` requires `documentKey`; `TEXT` `body`; `LINK` `externalUrl`.
 
 **live-classes** — A,T(owner): `POST courses/:courseId/live-classes`, `PATCH live-classes/:id`, `POST live-classes/:id/cancel`,
@@ -311,7 +327,15 @@ A,T: `GET fee-structures?classId&academicYearId`; S: `GET me/invoices`; P: `GET 
 **salaries** — A: `POST salary-structures`, `GET teachers/:teacherId/salary-structures`, `POST salary-payments` (upsert per teacher+period),
 `GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/salary-payments`.
 
-**timetable** — A: `POST timetable-slots`, `PATCH|DELETE timetable-slots/:id`; auth: `GET sections/:sectionId/timetable`;
+**timetable** — A: `POST timetable-slots`, `PATCH|DELETE timetable-slots/:id` (optional `periodId`, room clash 400); `GET timetable-periods` A,T,
+`POST|PATCH|DELETE timetable-periods(/:id)` A (`{name, startTime, endTime, isBreak?}`); `POST timetable/auto-generate` A (`{sectionIds, days?, apply?}` →
+preview `{plan, unplaced, warnings, summary}` or applied `{created, updated, removed, deactivated, …}`);
+**period attendance** — A: `GET period-attendance?date` (every period of the date: status/source AUTO|MARKED, substitute, leave, `freeTeachers`),
+`POST period-attendance/bulk` (`{date, entries:[{slotId, status, substituteTeacherId?, remarks?}]}`; substitute only for Absent/Leave),
+`GET period-attendance/report?from&to&teacherId&sectionId&periodId` (≤ 62 days; rows + per-teacher totals), `GET period-leaves?status`,
+`PATCH period-leaves/:id` (`{status: APPROVED, substituteTeacherId}` | `{status: REJECTED, reviewNote}`; can be changed again later — rejecting an
+approved one removes its Leave mark); T: `POST|GET me/period-leaves` (`{slotId, date ≥ today, reason}`; own period, weekday must match),
+`GET me/substitutions?from&to` (default today + 14 days); auth: `GET sections/:sectionId/timetable`;
 T,S: `GET me/timetable` → `{role, days, slots}`. A slot has no teacher of its own: its teacher is always the course's teacher
 (`slot.course.teacher`), which the admin editor shows read-only once a subject is picked.
 

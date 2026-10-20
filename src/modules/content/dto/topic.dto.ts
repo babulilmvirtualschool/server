@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { ContentProgress } from '@prisma/client';
+import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateTopicDto {
   @ApiProperty()
@@ -17,4 +18,9 @@ export class CreateTopicDto {
   orderIndex!: number;
 }
 
-export class UpdateTopicDto extends PartialType(CreateTopicDto) {}
+export class UpdateTopicDto extends PartialType(CreateTopicDto) {
+  @ApiPropertyOptional({ enum: ContentProgress, description: "Teacher's progress button: Pending / In progress / Complete" })
+  @IsOptional()
+  @IsEnum(ContentProgress)
+  progress?: ContentProgress;
+}

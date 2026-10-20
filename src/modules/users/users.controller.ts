@@ -28,7 +28,7 @@ import { AdminSetPasswordDto } from './dto/admin-set-password.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateStudentRecordDto } from './dto/update-student-record.dto';
 import { DischargeStudentsDto, ListDischargedDto, ReadmitStudentDto, SetPhotoDto } from './dto/student-lifecycle.dto';
-import { ExportStudentsDto, ListUsersDto } from './dto/list-users.dto';
+import { ExportStudentsDto, ListUsersDto, LoginSlipsQueryDto } from './dto/list-users.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -96,6 +96,13 @@ export class UsersController {
   @Put('students/:id/record')
   updateStudentRecord(@Param('id') id: string, @Body() dto: UpdateStudentRecordDto) {
     return this.users.updateStudentRecord(id, dto);
+  }
+
+  /** Login slips for many users at once (issued passwords while not changed by the user). */
+  @Roles(Role.ADMIN)
+  @Get('login-slips')
+  loginSlips(@Query() q: LoginSlipsQueryDto) {
+    return this.users.loginSlips(q);
   }
 
   /** Main admin only: counts per school and combined. */

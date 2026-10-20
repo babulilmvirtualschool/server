@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender, Role } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -71,6 +71,23 @@ export class ListUsersDto extends PaginationDto {
 /** Same filters as the list, without pagination (student exports). */
 export class ExportStudentsDto extends ListUsersDto {
   @ApiPropertyOptional({ description: 'Only students actively enrolled in this section' })
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+}
+
+/** Admin — login slips for many users at once (one role; optional search and class). */
+export class LoginSlipsQueryDto {
+  @ApiProperty({ enum: Role })
+  @IsEnum(Role)
+  role!: Role;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Students only: actively enrolled in this class section' })
   @IsOptional()
   @IsString()
   sectionId?: string;

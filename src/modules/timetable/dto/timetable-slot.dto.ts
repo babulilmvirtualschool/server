@@ -32,6 +32,11 @@ export class CreateTimetableSlotDto {
   @IsOptional()
   @IsString()
   label?: string;
+
+  @ApiPropertyOptional({ description: 'TimetablePeriod.id — its start/end time are used' })
+  @IsOptional()
+  @IsString()
+  periodId?: string;
 }
 
 export class UpdateTimetableSlotDto {
@@ -66,4 +71,9 @@ export class UpdateTimetableSlotDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ description: 'TimetablePeriod.id — its start/end time are used; null clears it' })
+  @IsOptional()
+  @IsString()
+  periodId?: string | null;
 }

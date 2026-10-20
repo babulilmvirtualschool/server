@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateCourseDto {
   @ApiProperty()
@@ -14,9 +14,17 @@ export class CreateCourseDto {
   @IsString()
   academicYearId!: string;
 
-  @ApiProperty({ description: 'TeacherProfile.id' })
+  @ApiProperty({ description: 'TeacherProfile.id (a teacher adding their own course may leave it out)' })
+  @IsOptional()
   @IsString()
   teacherId!: string;
+
+  @ApiPropertyOptional({ example: 5, description: 'Weekly credit hours = periods per week' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(40)
+  weeklyHours?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

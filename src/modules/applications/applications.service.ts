@@ -292,7 +292,11 @@ export class ApplicationsService {
           ],
         }
       : {};
-    const where = { ...search, ...(query.staffType ? { staffType: query.staffType } : {}) };
+    const where = {
+      ...search,
+      ...(query.staffType ? { staffType: query.staffType } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.teacherApplication.count({ where }),
       this.prisma.teacherApplication.findMany({

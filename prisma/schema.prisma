@@ -81,6 +81,8 @@ model User {
   gradesGiven          AssignmentGrade[]    @relation("Grader")
   feePaymentsRecorded  FeePayment[]         @relation("FeeRecorder")
   salaryPaymentsMade   SalaryPayment[]      @relation("SalaryPayer")
+  periodAttendanceRecorded PeriodAttendance[] @relation("PeriodAttendanceRecorder")
+  periodLeavesReviewed PeriodLeaveRequest[] @relation("PeriodLeaveReviewer")
 
   @@index([role])
   @@index([campus])
@@ -148,6 +150,10 @@ model TeacherProfile {
   attendanceRecords TeacherAttendanceRecord[]
   staffTiming       StaffTiming?
   leaveRequests    TeacherLeaveRequest[]
+  periodAttendance  PeriodAttendance[]   @relation("PeriodAttendanceTeacher")
+  periodSubstitutions PeriodAttendance[] @relation("PeriodSubstitute")
+  periodLeaves      PeriodLeaveRequest[] @relation("PeriodLeaveTeacher")
+  periodLeaveSubstitutions PeriodLeaveRequest[] @relation("PeriodLeaveSubstitute")
 }
 
 model StudentProfile {
@@ -223,10 +229,19 @@ model ParentStudentLink {
 // 2. ACADEMIC STRUCTURE
 // =============================================================
 
+/// PDF 9.1: an academic year is Active or Archived (archived years are kept for records).
+enum AcademicYearStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 model AcademicYear {
   id         String   @id @default(cuid())
   name       String   // e.g. "2025-2026" (unique per school)
   campus     Campus   @default(ONLINE)
+  /// Year code, e.g. "2026-2027".
+  code       String?
+  status     AcademicYearStatus @default(ACTIVE)
   startDate  DateTime
   endDate    DateTime
   isCurrent  Boolean  @default(false)
@@ -262,6 +277,8 @@ model Section {
   class           Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
   name            String   // "A", "B"
   room            String?
+  /// Maximum number of students (PDF 9.1).
+  capacity        Int?
   classTeacherId  String?
   classTeacher    TeacherProfile? @relation("ClassTeacher", fields: [classTeacherId], references: [id], onDelete: SetNull)
 
@@ -277,10 +294,24 @@ model Section {
   @@index([classTeacherId])
 }
 
+enum SubjectType {
+  THEORY
+  PRACTICAL
+}
+
+enum SubjectCategory {
+  CORE
+  ELECTIVE
+}
+
 model Subject {
   id        String   @id @default(cuid())
   name      String   // e.g. "Physics" (unique per school)
   code      String?  // e.g. "PHY" (unique per school)
+  type      SubjectType     @default(THEORY)
+  category  SubjectCategory @default(CORE)
+  totalMarks   Int?
+  passingMarks Int?
   campus    Campus   @default(ONLINE)
   createdAt DateTime @default(now())
 
@@ -304,6 +335,8 @@ model Course {
   description     String?
   coverImageKey   String?
   isActive        Boolean  @default(true)
+  /// Weekly credit hours = periods per week (used by Auto-Generate Timetable).
+  weeklyHours     Int?
   createdAt       DateTime @default(now())
 
   lessons       Lesson[]
@@ -331,6 +364,22 @@ enum DayOfWeek {
   SATURDAY
 }
 
+/// The school's period slots (Period 1 08:00–08:40, Break, …) used by the timetable editor and Auto-Generate.
+model TimetablePeriod {
+  id         String   @id @default(cuid())
+  campus     Campus   @default(ONLINE)
+  name       String
+  startTime  String
+  endTime    String
+  isBreak    Boolean  @default(false)
+  orderIndex Int
+  createdAt  DateTime @default(now())
+
+  slots TimetableSlot[]
+
+  @@index([campus])
+}
+
 model TimetableSlot {
   id        String    @id @default(cuid())
   courseId  String
@@ -340,9 +389,15 @@ model TimetableSlot {
   endTime   String
   room      String?
   label     String?
+  /// The period this slot fills (times copied from it); null for free-time slots.
+  periodId  String?
+  period    TimetablePeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  periodAttendance PeriodAttendance[]
+  periodLeaves     PeriodLeaveRequest[]
 
   @@unique([courseId, dayOfWeek, startTime])
   @@index([dayOfWeek, startTime])
@@ -406,6 +461,8 @@ model Lesson {
   description String?
   orderIndex  Int
   isPublished Boolean  @default(true)
+  /// Teacher's progress button: Pending / In progress / Complete (shown to admin).
+  progress    ContentProgress @default(PENDING)
   createdAt   DateTime @default(now())
 
   topics Topic[]
@@ -420,6 +477,7 @@ model Topic {
   title      String
   summary    String?
   orderIndex Int
+  progress   ContentProgress @default(PENDING)
   createdAt  DateTime @default(now())
 
   contents ContentItem[]
@@ -888,6 +946,60 @@ enum LeaveRequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+/// Teacher's lesson progress on a lesson / topic (PDF2 Teacher 7).
+enum ContentProgress {
+  PENDING
+  IN_PROGRESS
+  COMPLETE
+}
+
+/// Period-wise teacher attendance: one row per timetable slot per date (admin-marked; otherwise derived from the day's record).
+/// A substitute teacher takes the period when the scheduled teacher is on leave / absent.
+model PeriodAttendance {
+  id                  String   @id @default(cuid())
+  slotId              String
+  slot                TimetableSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  date                DateTime @db.Date
+  teacherId           String
+  teacher             TeacherProfile @relation("PeriodAttendanceTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  status              TeacherAttendanceStatus
+  substituteTeacherId String?
+  substitute          TeacherProfile? @relation("PeriodSubstitute", fields: [substituteTeacherId], references: [id], onDelete: SetNull)
+  remarks             String?
+  recordedById        String
+  recordedBy          User     @relation("PeriodAttendanceRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([slotId, date])
+  @@index([date])
+  @@index([teacherId])
+  @@index([substituteTeacherId])
+}
+
+/// A teacher asks for leave from one period; admin approves with a substitute or rejects with a reason (and can change it later).
+model PeriodLeaveRequest {
+  id                  String   @id @default(cuid())
+  teacherId           String
+  teacher             TeacherProfile @relation("PeriodLeaveTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  slotId              String
+  slot                TimetableSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  date                DateTime @db.Date
+  reason              String
+  status              LeaveRequestStatus @default(PENDING)
+  substituteTeacherId String?
+  substitute          TeacherProfile? @relation("PeriodLeaveSubstitute", fields: [substituteTeacherId], references: [id], onDelete: SetNull)
+  reviewNote          String?
+  reviewedById        String?
+  reviewedBy          User?    @relation("PeriodLeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([teacherId, status])
+  @@index([status])
+  @@index([date])
 }
 
 model TeacherLeaveRequest {

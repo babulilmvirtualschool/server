@@ -18,6 +18,7 @@ import {
   CreateTimetableSlotDto,
   UpdateTimetableSlotDto,
 } from './dto/timetable-slot.dto';
+import { AutoGenerateTimetableDto, SaveTimetablePeriodDto } from './dto/periods.dto';
 import { TimetableService } from './timetable.service';
 
 @ApiTags('timetable')
@@ -25,6 +26,37 @@ import { TimetableService } from './timetable.service';
 @Controller()
 export class TimetableController {
   constructor(private readonly timetable: TimetableService) {}
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('timetable-periods')
+  periods() {
+    return this.timetable.listPeriods();
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('timetable-periods')
+  createPeriod(@Body() dto: SaveTimetablePeriodDto) {
+    return this.timetable.createPeriod(dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Patch('timetable-periods/:id')
+  updatePeriod(@Param('id') id: string, @Body() dto: SaveTimetablePeriodDto) {
+    return this.timetable.updatePeriod(id, dto);
+  }
+
+  @Roles(Role.ADMIN)
+  @Delete('timetable-periods/:id')
+  removePeriod(@Param('id') id: string) {
+    return this.timetable.removePeriod(id);
+  }
+
+  /** Preview (default) or apply (`apply: true`) an automatic timetable for the chosen classes. */
+  @Roles(Role.ADMIN)
+  @Post('timetable/auto-generate')
+  autoGenerate(@Body() dto: AutoGenerateTimetableDto) {
+    return this.timetable.autoGenerate(dto);
+  }
 
   @Roles(Role.ADMIN)
   @Post('timetable-slots')

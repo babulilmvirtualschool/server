@@ -137,10 +137,10 @@ export class AcademicController {
   }
 
   // Courses
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Post('courses')
-  createCourse(@Body() dto: CreateCourseDto) {
-    return this.svc.createCourse(dto);
+  createCourse(@Body() dto: CreateCourseDto, @CurrentUser() user: AuthUser) {
+    return this.svc.createCourse(dto, user);
   }
 
   @Get('courses')
