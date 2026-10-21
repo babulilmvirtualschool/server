@@ -190,6 +190,7 @@ model StudentProfile {
   quizAttempts        QuizAttempt[]
   examResults         ExamResult[]
   invoices            FeeInvoice[]
+  feeDiscounts        FeeDiscount[]
   liveClassAttendance LiveClassAttendance[]
   leaveRequests       StudentLeaveRequest[]
 }
@@ -266,6 +267,7 @@ model Class {
 
   sections       Section[]
   feeStructures  FeeStructure[]
+  feeTypes       FeeType[]
 
   @@unique([academicYearId, name])
   @@index([academicYearId])
@@ -1103,12 +1105,108 @@ model FeeInvoice {
   status         InvoiceStatus @default(PENDING)
   lineItems      Json   // snapshot of components { name, amount, frequency }
   notes          String?
+  /// Challan / voucher number, serial per school (ON-V-000001).
+  voucherNo      String?  @unique
+  /// Siblings' challans printed together on one family voucher share this number.
+  familyVoucherNo String?
+  /// Class at generation time (for lists and the voucher).
+  sectionId      String?
+  classLabel     String?
+  /// Unpaid balance of earlier challans when this one was made (printed as arrears).
+  prevBalance    Float    @default(0)
+  discountTotal  Float    @default(0)
+  /// Late-fee penalty added when collected after the due date (Fee settings).
+  lateFee        Float    @default(0)
+  reminderDate   DateTime? @db.Date
   createdAt      DateTime @default(now())
 
   payments FeePayment[]
 
   @@unique([studentId, period])
   @@index([status])
+  @@index([familyVoucherNo])
+}
+
+/// PDF1 5.2 Fee settings — one per school.
+model FeeSettings {
+  id                   String   @id @default(cuid())
+  campus               Campus   @unique @default(ONLINE)
+  currencySymbol       String   @default("Rs.")
+  /// 1–12: month the session (and yearly fees) start.
+  sessionStartMonth    Int      @default(4)
+  /// Day of the month challans are due.
+  dueDay               Int      @default(10)
+  lateFeeEnabled       Boolean  @default(false)
+  lateFeeAmount        Float    @default(0)
+  printInstructions    Boolean  @default(true)
+  instructions         String?
+  hideDiscount         Boolean  @default(false)
+  /// Block parent & student portals for defaulters (enforced from Day 7).
+  blockDefaulters      Boolean  @default(false)
+  /// Days after the due date before an unpaid challan makes the student a defaulter.
+  defaulterGraceDays   Int      @default(30)
+  /// Copies per voucher page (Bank / School / Student).
+  voucherCopies        Int      @default(3)
+  /// PDF1 3.4 sibling policy on/off, and whether it applies to monthly fees only.
+  siblingPolicyEnabled Boolean  @default(false)
+  siblingMonthlyOnly   Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+}
+
+/// PDF1 3.1 fee types: name, frequency (Monthly / Yearly = ANNUAL / One-time), class, amount.
+model FeeType {
+  id        String       @id @default(cuid())
+  classId   String
+  class     Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  name      String
+  frequency FeeFrequency
+  amount    Float
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  discounts FeeDiscount[]
+
+  @@unique([classId, name])
+  @@index([classId])
+}
+
+enum DiscountValueType {
+  AMOUNT
+  PERCENT
+}
+
+/// PDF1 3.2 discount for a student on one fee type: every challan (MONTHLY), once a session (ANNUAL) or once (ONE_TIME).
+model FeeDiscount {
+  id                String            @id @default(cuid())
+  studentId         String
+  student           StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  feeTypeId         String
+  feeType           FeeType           @relation(fields: [feeTypeId], references: [id], onDelete: Cascade)
+  frequency         FeeFrequency
+  valueType         DiscountValueType
+  value             Float
+  isActive          Boolean           @default(true)
+  note              String?
+  appliedCount      Int               @default(0)
+  lastAppliedPeriod String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([studentId])
+  @@index([feeTypeId])
+}
+
+/// PDF1 3.4 sibling concession: the Nth child (and later ones, until a higher rule) gets this off.
+model SiblingDiscountRule {
+  id          String            @id @default(cuid())
+  campus      Campus            @default(ONLINE)
+  childNumber Int
+  valueType   DiscountValueType
+  value       Float
+  createdAt   DateTime          @default(now())
+
+  @@unique([campus, childNumber])
 }
 
 model FeePayment {
@@ -1120,6 +1218,8 @@ model FeePayment {
   method       PaymentMethod
   reference    String?
   receiptKey   String? // S3 key
+  /// Fee slip (receipt) number; one collection paying several challans shares it.
+  slipNo       String?
   recordedById String
   recordedBy   User   @relation("FeeRecorder", fields: [recordedById], references: [id], onDelete: Restrict)
   createdAt    DateTime @default(now())

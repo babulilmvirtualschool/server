@@ -21,6 +21,8 @@ const DIRECT = new Set([
   'AttendanceSettings',
   'SchoolClosure',
   'TimetablePeriod',
+  'FeeSettings',
+  'SiblingDiscountRule',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -81,6 +83,8 @@ const VIA: Record<string, Scope> = {
   StaffTiming: teacher,
   PeriodAttendance: teacher,
   PeriodLeaveRequest: teacher,
+  FeeType: (c) => ({ class: year(c) }),
+  FeeDiscount: student,
 };
 
 /**

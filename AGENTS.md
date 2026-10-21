@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (24) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 5 `20261020062527_academic_setup_periods_substitutes`.
+- Migrations (25) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 6 `20261021063000_fees_settings_types_discounts_challans`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -172,6 +172,21 @@ Patterns to copy:
   not off / absent / on leave that day, has no own class and no other substitution then. `Lesson.progress` / `Topic.progress`
   (ContentProgress PENDING | IN_PROGRESS | COMPLETE): teacher's lesson-plan buttons; `GET courses` and `me/courses` add
   `progress {lessons, items, complete, inProgress, pending, percent}` (topics, or lessons without topics).
+- Day 6 (2026-10-21, migration `20261021063000_fees_settings_types_discounts_challans`, additive) — finance, `modules/finance/`: `FeeSettings`
+  (one per school, campus `@unique`, DIRECT: currency, sessionStartMonth, dueDay, late fee on/amount, voucher instructions / hideDiscount /
+  voucherCopies 1-3, blockDefaulters + defaulterGraceDays (stored only — the block itself is Day 7), siblingPolicyEnabled / siblingMonthlyOnly;
+  GET returns defaults with `saved:false` until saved). `FeeType` (VIA class: name unique per class, frequency MONTHLY | ANNUAL | ONE_TIME, amount,
+  isActive). `FeeDiscount` (VIA student: fee type, frequency, AMOUNT | PERCENT ≤ 100, appliedCount / lastAppliedPeriod — Monthly applies every
+  challan, Yearly once per session year, One-time once). `SiblingDiscountRule` (DIRECT: childNumber unique per school, AMOUNT | PERCENT); families =
+  students sharing a parent (union-find), eldest by date of birth is child 1, a rule for N applies to N and every younger child until a higher rule.
+  **Challans are `FeeInvoice` rows** with new columns `voucherNo` (unique, `ON-V-000001` / `PH-V-…`), `familyVoucherNo` (`ON-FV-000001`),
+  `sectionId`, `classLabel`, `prevBalance`, `discountTotal`, `lateFee`, `reminderDate`; `lineItems` snapshot =
+  `[{feeTypeId, name, frequency, amount, discount, discountIds, siblingDiscount, net}]`; `feeStructureId` stays null for them. Monthly types go
+  on every challan, Annual ones only in the session start month (or when chosen), One-time only when chosen. One challan per student per period
+  (others are skipped with a reason). `FeePayment.slipNo` (`ON-R-000001`) groups one collection: money goes to the oldest open challans first
+  (period ≤ the collected one), the late fee is added once when collected after the due date (if enabled), over-payment is refused (400).
+  A paid / part-paid challan can't be regenerated or deleted (409); deleting reverts the discount usage. The old fee-structure / fee-invoice
+  endpoints still work (unused by the new admin pages; reports still read `fee-invoices`).
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -323,6 +338,18 @@ only on open days (closed weekdays, the teacher's own off days and closures are 
 (`{feeStructureId, period, includeFrequencies[], dueDate}` → one invoice per ACTIVE enrollment in that class/year; existing student+period kept),
 `GET fee-invoices?status&studentId&period`, `POST fee-invoices/:id/payments` (recomputes amountPaid + PAID/PARTIAL/PENDING), `POST fee-invoices/:id/cancel`;
 A,T: `GET fee-structures?classId&academicYearId`; S: `GET me/invoices`; P: `GET me/children/invoices`.
+
+**finance** (Day 6, all A) — `GET|PUT fee-settings`; `GET fee-types?classId`, `POST fee-types`, `PATCH|DELETE fee-types/:id`;
+`GET fee-discounts?search&classId`, `POST fee-discounts` (`{studentIds[], feeTypeId, frequency, valueType, value, note?}` → one per student),
+`PATCH|DELETE fee-discounts/:id`; `GET|PUT sibling-rules` (PUT replaces all: `{rules:[{childNumber, valueType, value}]}`); `GET fee-families?search`;
+`GET fee-assign/preview?studentId&period&feeTypeIds` (lines with discount / sibling / net, arrears = `prevBalance`, payable);
+`POST fee-challans/generate` (`{period, scope: STUDENT|CLASS|ALL, studentId?, sectionId?, feeTypeIds?, dueDate?}` → `{created, challanIds, skipped[]}`);
+`POST fee-challans/family` (`{period, studentId, feeTypeIds?, dueDate?}` → one family voucher no. over the brothers/sisters' challans);
+`GET fee-challans?page&limit&search&sectionId&status=PAID|UNPAID|PARTIAL&feeTypeId&period&remindersDue` (paginated, `meta.totals {total, paid, balance}`;
+rows: voucherNo, period, dueDate, reminderDate, status, lines, total, paid, balance, prevRemaining, student, father, mother, payments);
+`GET fee-challans/missing?period&sectionId`, `GET fee-challans/family/:familyVoucherNo`, `GET fee-challans/:id` (both add `settings` for printing),
+`POST fee-challans/:id/regenerate`, `PATCH fee-challans/:id/reminder` (`{reminderDate | null}`), `DELETE fee-challans/:id`,
+`POST fee-challans/:id/collect` (`{amount, paidAt, method, reference?}` → `{slipNo, allocations[], challan}`), `GET fee-slips/:slipNo`.
 
 **salaries** — A: `POST salary-structures`, `GET teachers/:teacherId/salary-structures`, `POST salary-payments` (upsert per teacher+period),
 `GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/salary-payments`.
