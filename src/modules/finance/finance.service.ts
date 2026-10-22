@@ -727,6 +727,35 @@ export class FinanceService {
     };
   }
 
+  /** Student / parent Fees page: their own (or their children's) challans, newest first, the total still due and the print settings. */
+  async myChallans(user: AuthUser) {
+    let studentIds: string[];
+    if (user.role === 'STUDENT') {
+      const s = await this.prisma.studentProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+      if (!s) throw new NotFoundException('Student profile not found');
+      studentIds = [s.id];
+    } else {
+      const p = await this.prisma.parentProfile.findUnique({ where: { userId: user.id }, select: { children: { select: { studentId: true } } } });
+      if (!p) throw new NotFoundException('Parent profile not found');
+      studentIds = p.children.map((c) => c.studentId);
+    }
+    const rows = await this.prisma.feeInvoice.findMany({
+      where: { studentId: { in: studentIds }, status: { not: InvoiceStatus.CANCELLED } },
+      include: this.invoiceInclude,
+      orderBy: [{ period: 'desc' }, { voucherNo: 'asc' }],
+      take: 120,
+    });
+    const arrearsOf = await this.arrears(studentIds);
+    const challans = rows.map((r) => this.challanView(r, arrearsOf(r.studentId, r.period)));
+    const open = rows.filter((r) => OPEN.includes(r.status));
+    return {
+      challans,
+      totalDue: round2(open.reduce((n, r) => n + r.totalAmount + r.lateFee - r.amountPaid, 0)),
+      openCount: open.length,
+      settings: await this.getSettings(),
+    };
+  }
+
   async getChallan(id: string) {
     const inv = await this.prisma.feeInvoice.findUnique({ where: { id }, include: this.invoiceInclude });
     if (!inv) throw new NotFoundException('Challan not found');

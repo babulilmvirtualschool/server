@@ -151,6 +151,12 @@ export class FinanceController {
     return this.svc.collect(id, dto, user);
   }
 
+  @Roles(Role.STUDENT, Role.PARENT)
+  @Get('me/fee-challans')
+  myChallans(@CurrentUser() user: AuthUser) {
+    return this.svc.myChallans(user);
+  }
+
   @Get('fee-slips/:slipNo')
   slip(@Param('slipNo') slipNo: string) {
     return this.svc.feeSlip(slipNo);

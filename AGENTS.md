@@ -350,6 +350,7 @@ rows: voucherNo, period, dueDate, reminderDate, status, lines, total, paid, bala
 `GET fee-challans/missing?period&sectionId`, `GET fee-challans/family/:familyVoucherNo`, `GET fee-challans/:id` (both add `settings` for printing),
 `POST fee-challans/:id/regenerate`, `PATCH fee-challans/:id/reminder` (`{reminderDate | null}`), `DELETE fee-challans/:id`,
 `POST fee-challans/:id/collect` (`{amount, paidAt, method, reference?}` → `{slipNo, allocations[], challan}`), `GET fee-slips/:slipNo`.
+S,P: `GET me/fee-challans` (own / children's challans, newest first, max 120 → `{challans, totalDue, openCount, settings}`) — the portal Fees page.
 
 **salaries** — A: `POST salary-structures`, `GET teachers/:teacherId/salary-structures`, `POST salary-payments` (upsert per teacher+period),
 `GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/salary-payments`.
