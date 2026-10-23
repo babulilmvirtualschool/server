@@ -45,6 +45,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ) {
           fields = body.fields as Record<string, string>;
         }
+        if (typeof body.code === 'string') code = body.code;
       } else {
         message = (res as any)?.message ?? res;
       }

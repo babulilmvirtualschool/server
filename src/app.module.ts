@@ -14,6 +14,7 @@ import { ExamsModule } from './modules/exams/exams.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { FeesModule } from './modules/fees/fees.module';
 import { FinanceModule } from './modules/finance/finance.module';
+import { CashbookModule } from './modules/cashbook/cashbook.module';
 import { SalariesModule } from './modules/salaries/salaries.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -58,6 +59,7 @@ import { QuestionBankModule } from './modules/question-bank/question-bank.module
     AttendanceModule,
     FeesModule,
     FinanceModule,
+    CashbookModule,
     SalariesModule,
     AnnouncementsModule,
     NotificationsModule,
