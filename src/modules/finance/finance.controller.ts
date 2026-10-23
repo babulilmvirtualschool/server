@@ -20,6 +20,8 @@ import {
   SetReminderDto,
   UpdateFeeDiscountDto,
 } from './dto/finance.dto';
+import { FeeLedgerQueryDto, FeeRegisterQueryDto, FeeReportQueryDto } from './dto/fee-reports.dto';
+import { FeeReportsService } from './fee-reports.service';
 import { FinanceService } from './finance.service';
 
 /** Finance (admin): fee settings, fee types, discounts, sibling policy, assign fee, challans, collection, fee slips. */
@@ -28,7 +30,31 @@ import { FinanceService } from './finance.service';
 @Roles(Role.ADMIN)
 @Controller()
 export class FinanceController {
-  constructor(private readonly svc: FinanceService) {}
+  constructor(
+    private readonly svc: FinanceService,
+    private readonly reports: FeeReportsService,
+  ) {}
+
+  @Get('fee-reports')
+  feeReport(@Query() q: FeeReportQueryDto) {
+    return this.reports.report(q);
+  }
+
+  @Get('fee-register')
+  feeRegister(@Query() q: FeeRegisterQueryDto) {
+    return this.reports.register(q);
+  }
+
+  @Get('fee-ledger')
+  feeLedger(@Query() q: FeeLedgerQueryDto) {
+    return this.reports.ledger(q);
+  }
+
+  @Roles(Role.STUDENT, Role.PARENT)
+  @Get('me/fee-status')
+  feeStatus(@CurrentUser() user: AuthUser) {
+    return this.reports.feeStatus(user);
+  }
 
   @Get('fee-settings')
   settings() {

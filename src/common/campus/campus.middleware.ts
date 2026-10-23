@@ -23,6 +23,8 @@ const DIRECT = new Set([
   'TimetablePeriod',
   'FeeSettings',
   'SiblingDiscountRule',
+  'CashCategory',
+  'CashEntry',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -76,6 +78,8 @@ const VIA: Record<string, Scope> = {
   FeePayment: (c, u) => ({ invoice: student(c, u) }),
   TeacherSalaryStructure: teacher,
   SalaryPayment: teacher,
+  SalaryAdvance: teacher,
+  SalaryFine: teacher,
   Notification: (c, u) => ({ user: userScope(c, u) }),
   DiaryEntry: course,
   BankQuestion: (c) => ({ subject: { campus: c } }),

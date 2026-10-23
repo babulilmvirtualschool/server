@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (25) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 6 `20261021063000_fees_settings_types_discounts_challans`.
+- Migrations (26) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 7 `20261023060000_salaries_advances_fines_expenses`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -187,6 +187,22 @@ Patterns to copy:
   (period ≤ the collected one), the late fee is added once when collected after the due date (if enabled), over-payment is refused (400).
   A paid / part-paid challan can't be regenerated or deleted (409); deleting reverts the discount usage. The old fee-structure / fee-invoice
   endpoints still work (unused by the new admin pages; reports still read `fee-invoices`).
+- Day 7 (2026-10-23, migration `20261023060000_salaries_advances_fines_expenses`, additive): **salaries** — `SalaryPayment` is now the month's
+  salary record: `status` (SalaryStatus UNPAID | PARTIAL | PAID), `paidAmount`, `slipNo` (unique `ON-S-000001` / `PH-S-…`), `paidAt` / `method` /
+  `paidById` nullable until paid; `breakdown` = `{base, allowances[], deductions[], fines[{id,reason,amount}], advances[{id,amount}], …Total}`
+  (existing rows were set PAID with paidAmount = net). `TeacherSalaryStructure` = the assigned salary (a new one closes the previous one the day
+  before). `SalaryAdvance` (VIA teacher: amount, givenOn, monthlyDeduction (0 = all at once), recovered) and `SalaryFine` (VIA teacher: period,
+  amount, reason). Generating a month (`SalariesService.generate`) = latest structure effective by month end, that month's fines, advance recovery
+  oldest first, never below zero; skips people already generated or without a salary. A paid / part-paid salary is locked (regenerate / delete / fine
+  changes 409); adding or deleting a fine for an unpaid generated month rebuilds it (same slip no.). **Expense manager** (`modules/cashbook`) —
+  `CashCategory` (DIRECT: type EXPENSE | INCOME, name unique per school+type; the 7 PDF income categories are created the first time Other income
+  is opened) and `CashEntry` (DIRECT: type, category (Restrict), date `@db.Date`, amount, title, party, method, reference, note). Profit & loss =
+  fee payments by `paidAt` + other income − expenses − salary `paidAmount` by salary month. **Fee reports / register / ledger / defaulter block** live in
+  `finance/fee-reports.service.ts`; the session = 12 months from the fee-settings start month, the one containing the academic year's start.
+  `FeeDefaulterInterceptor` (APP_INTERCEPTOR in FinanceModule, runs its own query in the user's campus): with `blockDefaulters` on, a STUDENT /
+  PARENT with a challan unpaid `defaulterGraceDays` after its due date gets 403 `code: FEE_DEFAULTER` on every route except `/auth/*`,
+  `me/fee-challans`, `me/fee-status`; 60 s per-user cache (`fee-defaulter.cache.ts`) cleared on every collection and settings save. The exception
+  filter now passes `code` from HTTP exception bodies.
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -351,9 +367,28 @@ rows: voucherNo, period, dueDate, reminderDate, status, lines, total, paid, bala
 `POST fee-challans/:id/regenerate`, `PATCH fee-challans/:id/reminder` (`{reminderDate | null}`), `DELETE fee-challans/:id`,
 `POST fee-challans/:id/collect` (`{amount, paidAt, method, reference?}` → `{slipNo, allocations[], challan}`), `GET fee-slips/:slipNo`.
 S,P: `GET me/fee-challans` (own / children's challans, newest first, max 120 → `{challans, totalDue, openCount, settings}`) — the portal Fees page.
+Day 7 (A): `GET fee-reports?kind=DAILY|MONTHLY|OUTSTANDING|BY_TYPE&date&month&sectionId&studentId&family=true` (daily = payments of the day grouped by
+slip + by method; monthly = that month's challans per class + `collectedThisMonth`; outstanding = open balance per student with unpaid months;
+by type = fee lines of the month per fee type), `GET fee-register?academicYearId&sessionStartMonth&sectionId&status=PAID|UNPAID|PARTIAL|DISCHARGED|REMITTED`
+(challans of the session; Remitted = with a discount), `GET fee-ledger?academicYearId&sectionId&search&sort=ROLL|ADMISSION|NAME` (enrolled students:
+father, mobile, opening balance = open balance before the session, `months{period:{total,paid,balance,status}}`, balance); S,P: `GET me/fee-status`
+(`{blocked, blockEnabled, graceDays, overdueCount, overdueAmount, currency}`).
 
-**salaries** — A: `POST salary-structures`, `GET teachers/:teacherId/salary-structures`, `POST salary-payments` (upsert per teacher+period),
-`GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/salary-payments`.
+**salaries** (teachers + non-teaching staff, TeacherProfile ids) — A: `GET salary-staff` (active staff with current salary, monthly net, advance balance),
+`POST salary-structures` (assign: `{teacherId, baseSalary, allowances[{name,amount}], deductions[], effectiveFrom}`), `GET teachers/:teacherId/salary-structures`,
+`POST salaries/generate` (`{period, teacherIds?}` → `{created, skipped[{teacherId,name,reason}]}`), `GET salaries?period&teacherId&status` (`{rows, totals, currency}`),
+`GET salaries/annual?year` (staff × 12 months), `POST salaries/:id/pay` (`{amount ≤ pending, paidAt, method, reference?}` → slip), `POST salaries/:id/regenerate`,
+`DELETE salaries/:id` (both only before any payment; recovered advance is given back), `GET salaries/:id/slip`, `GET|POST salary-advances`
+(`?teacherId&from&to&status=OPEN|RECOVERED`; body `{teacherId, amount, givenOn, monthlyDeduction?, method?, note?}`), `DELETE salary-advances/:id` (409 once
+recovered), `GET|POST salary-fines` (`?period&teacherId`; body `{teacherId, period, amount, reason}`), `DELETE salary-fines/:id`,
+`GET teachers/:teacherId/salary-payments`; T,STAFF: `GET me/pay` (`{salary, salaries, fines, advances, totals{monthlyPay, received, pending, fines,
+advanceBalance}}`), `GET me/salary-slips/:id` (own only, 403 otherwise), `GET me/salary-payments`. (`POST salary-payments` was removed — no caller.)
+
+**expenses** (`modules/cashbook`, A) — `GET cash-categories?type=EXPENSE|INCOME`, `POST cash-categories` (`{type, name}`; duplicate name 409),
+`PATCH cash-categories/:id` (`{name}`), `DELETE cash-categories/:id` (409 while it has entries); `GET cash-entries?type&categoryId&from&to&search`
+(`{rows, total, currency}`, max 2000), `POST cash-entries` (`{type, categoryId, date, amount, title, party?, method?, reference?, note?}`; category must be
+of that type), `PATCH|DELETE cash-entries/:id`; `GET profit-loss?from&to&categoryId` (≤ 36 months: `months[{month, fees, otherIncome, income, salaries,
+expenses, expense, net}]`, `income[]` / `expenses[]` by category incl. "Fee collection" and "Staff salaries", `totals`; a category leaves fees and salaries out).
 
 **timetable** — A: `POST timetable-slots`, `PATCH|DELETE timetable-slots/:id` (optional `periodId`, room clash 400); `GET timetable-periods` A,T,
 `POST|PATCH|DELETE timetable-periods(/:id)` A (`{name, startTime, endTime, isBreak?}`); `POST timetable/auto-generate` A (`{sectionIds, days?, apply?}` →

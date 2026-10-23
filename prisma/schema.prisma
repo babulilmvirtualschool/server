@@ -146,6 +146,8 @@ model TeacherProfile {
   homeroomSections Section[]           @relation("ClassTeacher")
   salaryStructures TeacherSalaryStructure[]
   salaryPayments   SalaryPayment[]
+  salaryAdvances   SalaryAdvance[]
+  salaryFines      SalaryFine[]
   liveClasses      LiveClass[]
   attendanceRecords TeacherAttendanceRecord[]
   staffTiming       StaffTiming?
@@ -1248,13 +1250,16 @@ model SalaryPayment {
   period      String // "2025-09"
   grossAmount Float
   netAmount   Float
-  breakdown   Json?
-  paidAt      DateTime
-  method      PaymentMethod
+  breakdown   Json? // { base, allowances[], deductions[], fines[{id, reason, amount}], advances[{id, amount}] }
+  paidAmount  Float        @default(0)
+  status      SalaryStatus @default(UNPAID)
+  slipNo      String?      @unique // ON-S-000001 / PH-S-…, given when generated
+  paidAt      DateTime?
+  method      PaymentMethod?
   reference   String?
   slipKey     String?
-  paidById    String
-  paidBy      User   @relation("SalaryPayer", fields: [paidById], references: [id], onDelete: Restrict)
+  paidById    String?
+  paidBy      User?  @relation("SalaryPayer", fields: [paidById], references: [id], onDelete: Restrict)
   createdAt   DateTime @default(now())
 
   @@unique([teacherId, period])
@@ -1555,4 +1560,76 @@ model StudentDischarge {
   createdAt      DateTime @default(now())
 
   @@index([studentId])
+}
+
+enum SalaryStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+/// Money given to a teacher / staff member ahead of salary; recovered from the next salaries (monthlyDeduction each month, 0 = all at once).
+model SalaryAdvance {
+  id               String         @id @default(cuid())
+  teacherId        String
+  teacher          TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  amount           Float
+  givenOn          DateTime       @db.Date
+  monthlyDeduction Float          @default(0)
+  recovered        Float          @default(0)
+  method           PaymentMethod  @default(CASH)
+  note             String?
+  createdAt        DateTime       @default(now())
+
+  @@index([teacherId])
+}
+
+/// A fine for one month, deducted when that month's salary is generated.
+model SalaryFine {
+  id        String         @id @default(cuid())
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  period    String // "2026-10"
+  amount    Float
+  reason    String
+  createdAt DateTime       @default(now())
+
+  @@index([teacherId, period])
+}
+
+enum CashEntryType {
+  EXPENSE
+  INCOME
+}
+
+/// Expense categories (custom) and other-income categories (Canteen, Transport, … are created on first use).
+model CashCategory {
+  id        String        @id @default(cuid())
+  campus    Campus        @default(ONLINE)
+  type      CashEntryType
+  name      String
+  createdAt DateTime      @default(now())
+  entries   CashEntry[]
+
+  @@unique([campus, type, name])
+}
+
+/// One expense or one other-income receipt.
+model CashEntry {
+  id         String        @id @default(cuid())
+  campus     Campus        @default(ONLINE)
+  type       CashEntryType
+  categoryId String
+  category   CashCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  date       DateTime      @db.Date
+  amount     Float
+  title      String
+  party      String? // paid to / received from
+  method     PaymentMethod @default(CASH)
+  reference  String?
+  note       String?
+  createdAt  DateTime      @default(now())
+
+  @@index([campus, type, date])
+  @@index([categoryId])
 }

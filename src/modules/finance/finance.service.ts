@@ -15,6 +15,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { currentCampus } from '../../common/campus/campus-context';
 import { getSkipTake, paginate } from '../../common/pagination/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { defaulterCache } from './fee-defaulter.cache';
 import {
   ChallansQueryDto,
   CollectFeeDto,
@@ -94,6 +95,7 @@ export class FinanceService {
   }
 
   async saveSettings(dto: SaveFeeSettingsDto) {
+    defaulterCache.clear();
     const data = { ...dto, instructions: dto.instructions?.trim() || null };
     const existing = await this.prisma.feeSettings.findFirst({ select: { id: true } });
     if (existing) await this.prisma.feeSettings.update({ where: { id: existing.id }, data });
@@ -277,7 +279,8 @@ export class FinanceService {
    * Families of the current year's active students: children who share a parent are one family; the eldest (date of birth,
    * then admission no.) is child 1. Used by the sibling policy and the family voucher.
    */
-  private async families() {
+  /** Brothers and sisters (students sharing a parent), eldest first — also used by fee reports. */
+  async families() {
     const enrolled = await this.prisma.studentEnrollment.findMany({
       where: { status: 'ACTIVE', academicYear: { isCurrent: true }, student: { dischargedAt: null } },
       select: {
@@ -866,6 +869,7 @@ export class FinanceService {
    * A challan paid after its due date gets the late fee once (when enabled). Returns the fee slip number.
    */
   async collect(id: string, dto: CollectFeeDto, admin: AuthUser) {
+    defaulterCache.clear();
     const inv = await this.prisma.feeInvoice.findUnique({ where: { id } });
     if (!inv) throw new NotFoundException('Challan not found');
     if (inv.status === InvoiceStatus.CANCELLED) throw new BadRequestException('This challan is cancelled.');
