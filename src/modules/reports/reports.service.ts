@@ -76,7 +76,8 @@ export class ReportsService {
 
     // ---- assignments (graded) and quizzes (latest finished attempt per quiz) ----
     const graded = await this.prisma.assignmentSubmission.findMany({
-      where: { studentId, grade: { isNot: null } },
+      // Grades given only as stars / an emoji have no marks, so they don't count towards the average.
+      where: { studentId, grade: { is: { marksObtained: { not: null } } } },
       select: { grade: { select: { marksObtained: true } }, assignment: { select: { maxMarks: true } } },
     });
     const aGot = graded.reduce((t, g) => t + (g.grade?.marksObtained ?? 0), 0);

@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (26) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 7 `20261023060000_salaries_advances_fines_expenses`.
+- Migrations (27) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 8 `20261025060000_assignments_diary_homework_live_polls`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -203,6 +203,16 @@ Patterns to copy:
   PARENT with a challan unpaid `defaulterGraceDays` after its due date gets 403 `code: FEE_DEFAULTER` on every route except `/auth/*`,
   `me/fee-challans`, `me/fee-status`; 60 s per-user cache (`fee-defaulter.cache.ts`) cleared on every collection and settings save. The exception
   filter now passes `code` from HTTP exception bodies.
+- Day 8 (2026-10-25, migration `20261025060000_assignments_diary_homework_live_polls`, additive): `Assignment.isPublished` (default true, existing ones
+  stay published) + `publishedAt`; students / parents never see drafts (list, get and submit → 404). `AssignmentGrade.marksObtained` is now
+  nullable, plus `stars` (1–5) and `emoji` (one of `GRADE_EMOJIS` in the DTO) — a grade needs at least one of marks / stars / emoji; the growth
+  report averages only grades with marks. Teacher attachments must be the teacher's own finalized `ASSIGNMENT_ATTACHMENT` uploads (shared helper
+  `common/utils/own-uploads.ts`, also used for submissions and diary homework). `DiarySubmission` (VIA diaryEntry → course: diary entry + student
+  unique, text, attachments = own `ASSIGNMENT_SUBMISSION` uploads, `checked` / `checkedAt` / `checkedById`, `grade` text, `stars` 1–5, `remarks`;
+  the student can replace it until it is checked). `LiveClass.platform` (LiveClassPlatform GOOGLE_MEET | ZOOM | OTHER; worked out from the link
+  when not given, a chosen platform must match the link's host — existing rows were set from their link). `LiveClassPoll` (VIA liveClass: question,
+  options Json string[2–6], `correctOption?`, `durationSeconds` 30–600 (default 120), `openedAt` / `closesAt` — open while closesAt > now) and
+  `LiveClassPollResponse` (VIA poll → liveClass: poll + student unique, option). The correct option is shown to students only after the poll closes.
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -296,12 +306,22 @@ A,T(owner): `POST courses/:courseId/lessons`, `PATCH|DELETE lessons/:id`, `POST 
 `PATCH lessons/:id` / `topics/:id` also take `progress` (PENDING | IN_PROGRESS | COMPLETE).
 `VIDEO_YOUTUBE` requires `youtubeUrl` → server derives `youtubeId`; `DOCUMENT` requires `documentKey`; `TEXT` `body`; `LINK` `externalUrl`.
 
-**live-classes** — A,T(owner): `POST courses/:courseId/live-classes`, `PATCH live-classes/:id`, `POST live-classes/:id/cancel`,
+**live-classes** — A,T(owner): `POST courses/:courseId/live-classes` (optional `platform` GOOGLE_MEET | ZOOM; must match the link, 400 `fields.meetingLink`),
+`PATCH live-classes/:id`, `POST live-classes/:id/cancel`,
 `GET live-classes/:id/attendance`; auth: `GET courses/:courseId/live-classes`, `GET me/live-classes/upcoming` (S,T);
 S: `POST live-classes/:id/join` → `{meetingLink}` only inside `[start − joinBufferMinutes, end]` and if enrolled; records attendance.
+**End-of-lesson polls** (`live-polls.service.ts`) — A,T(owner): `GET|POST live-classes/:id/polls` (`{question, options[2–6], correctOption?, durationSeconds?, start?}`
+→ the class's polls with `counts[]`, `answered`, `students`, `correct`, `responses`, status DRAFT | OPEN | CLOSED), `POST live-polls/:id/open` (starts again for
+its duration, answers kept), `POST live-polls/:id/close`, `DELETE live-polls/:id`; T: `GET me/live-classes/recent` (own classes ended in the last 72 h,
+`_count.polls`); S: `GET me/live-polls` (open polls + closed in the last 72 h with `myAnswer` and, once closed, `correctOption`),
+`POST live-polls/:id/answer` (`{option}`; enrolled, open, once → 409 on a second answer, 400 when closed).
 
-**assignments** — A,T(owner): `POST courses/:courseId/assignments`, `PATCH|DELETE assignments/:id`, `GET assignments/:id/submissions`,
-`PATCH submissions/:submissionId/grade` (`{marksObtained:int ≤ maxMarks, feedback?}`); auth: `GET courses/:courseId/assignments`, `GET assignments/:id`;
+**assignments** — A,T(owner): `POST courses/:courseId/assignments` (`isPublished` default true = publish now, false = draft; `attachments` = own
+`ASSIGNMENT_ATTACHMENT` uploads, max 10; `lessonId` ties it to a content module), `PATCH|DELETE assignments/:id` (PATCH `isPublished` publishes / unpublishes),
+`GET assignments/:id/submissions`, `GET assignments/:id/roster` (every actively enrolled student: ON_TIME | LATE | MISSING + submission + grade, counts),
+`PATCH submissions/:submissionId/grade` (`{marksObtained? ≤ maxMarks (halves allowed), stars? 1–5, emoji?, feedback?}` — at least one of the first three);
+A,T: `GET me/assignments?courseId&sectionId&subjectId&createdFrom&createdTo&dueFrom&dueTo&status=DRAFT|PUBLISHED` (T own courses, A all; class / subject
+label + `counts {students, submitted, late, graded}`); auth: `GET courses/:courseId/assignments`, `GET assignments/:id` (both hide drafts from S/P);
 S: `POST assignments/:id/submissions` (`{textAnswer?, attachments?}`, upsert; late blocked if `allowLate=false`; attachments must be the
 student's own finalized `ASSIGNMENT_SUBMISSION` uploads (max 10, no duplicates) and their name/size/mime are taken from `MediaAsset`;
 needs text or ≥1 file; refused once graded), `GET assignments/:id/my-submission`.
@@ -404,7 +424,10 @@ T,S: `GET me/timetable` → `{role, days, slots}`. A slot has no teacher of its 
 
 **diary** (`modules/diary`) — A,T(owner): `POST diary` (`{courseId, date: YYYY-MM-DD, content}`; upsert per course+day),
 `DELETE diary/:id`, `GET courses/:courseId/diary?from&to` (newest first, max 60); S: `GET me/diary?date` (all subjects of the student's
-active sections); P: `GET children/:studentId/diary?date` (link verified).
+active sections; each entry carries `mySubmission`); P: `GET children/:studentId/diary?date` (link verified; same `mySubmission` for the child).
+Homework (Day 8): S: `POST diary/:id/homework` (`{text?, attachments?}`; own class only, refused once checked), `GET me/diary-homework?from&to` (date, subject,
+grade, stars, remarks); A,T(owner): `GET diary/:id/homework` (every student of the class + submission, counts), `PATCH diary-homework/:id` (`{checked?
+(default true), grade?, stars? 1–5, remarks?}`); `GET courses/:courseId/diary` adds `homework {submitted, checked}` per entry.
 
 **announcements** — A,T: `POST announcements` (T only `COURSE` with own courseId or `SECTION` where class teacher), `PATCH|DELETE announcements/:id`
 (author or A); auth: `GET announcements` (visibility-filtered by role/enrollment/children).
@@ -455,7 +478,7 @@ The droplet checkout is reset to `origin/main` on every deploy (a plain `git pul
 6. Nothing calls `NotificationsService.push`, so the notifications inbox is always empty.
 7. No rate limiting on `auth/login` / `auth/forgot-password` / public application endpoints.
 8. Quiz `showResultsAfter` is stored but not enforced in `GET attempts/:id` after submission.
-9. `GradeSubmissionDto.marksObtained` is `@IsInt` while the column is Float (half marks rejected).
+9. ~~`GradeSubmissionDto.marksObtained` is `@IsInt`~~ — fixed 2026-10-25 (Day 8): marks are `@IsNumber` (halves allowed) and optional.
 10. `README.md` deployment/env/scripts sections and `docs/roles/*.md` are out of date (see §10).
 
 ## 10. Stale docs — trust code instead

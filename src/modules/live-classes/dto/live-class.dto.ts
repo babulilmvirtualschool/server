@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { LiveClassStatus } from '@prisma/client';
+import { LiveClassPlatform, LiveClassStatus } from '@prisma/client';
 import {
   IsDateString,
   IsEnum,
@@ -23,6 +23,11 @@ export class CreateLiveClassDto {
   @ApiProperty()
   @IsUrl()
   meetingLink!: string;
+
+  @ApiPropertyOptional({ enum: LiveClassPlatform, description: 'Google Meet or Zoom (worked out from the link when left out)' })
+  @IsOptional()
+  @IsEnum(LiveClassPlatform)
+  platform?: LiveClassPlatform;
 
   @ApiProperty()
   @IsDateString()

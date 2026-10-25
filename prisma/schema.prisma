@@ -189,6 +189,8 @@ model StudentProfile {
   parents             ParentStudentLink[]
   attendance          AttendanceRecord[]
   assignmentSubs      AssignmentSubmission[]
+  diarySubmissions    DiarySubmission[]
+  pollResponses       LiveClassPollResponse[]
   quizAttempts        QuizAttempt[]
   examResults         ExamResult[]
   invoices            FeeInvoice[]
@@ -537,6 +539,7 @@ model LiveClass {
   title               String
   description         String?
   meetingLink         String
+  platform            LiveClassPlatform @default(OTHER)
   scheduledStart      DateTime
   scheduledEnd        DateTime
   joinBufferMinutes   Int      @default(10)
@@ -545,6 +548,7 @@ model LiveClass {
   updatedAt           DateTime @updatedAt
 
   attendance LiveClassAttendance[]
+  polls      LiveClassPoll[]
 
   @@index([courseId, scheduledStart])
 }
@@ -576,6 +580,9 @@ model Assignment {
   maxMarks      Int
   dueDate       DateTime
   allowLate     Boolean  @default(true)
+  /// Students see only published assignments (existing ones stay published).
+  isPublished   Boolean  @default(true)
+  publishedAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -605,7 +612,11 @@ model AssignmentGrade {
   id             String @id @default(cuid())
   submissionId   String @unique
   submission     AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  marksObtained  Float
+  marksObtained  Float?
+  /// Digital stars 1–5.
+  stars          Int?
+  /// One of the grading emojis (e.g. "🌟", "👍").
+  emoji          String?
   feedback       String?
   gradedById     String
   gradedBy       User   @relation("Grader", fields: [gradedById], references: [id], onDelete: Restrict)
@@ -1500,6 +1511,8 @@ model DiaryEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  submissions DiarySubmission[]
+
   @@unique([courseId, date])
   @@index([date])
 }
@@ -1632,4 +1645,60 @@ model CashEntry {
 
   @@index([campus, type, date])
   @@index([categoryId])
+}
+
+/// Student's homework for one diary entry (PDF2 Student 1 / Teacher 8): text + files, then the teacher checks it.
+model DiarySubmission {
+  id           String         @id @default(cuid())
+  diaryEntryId String
+  diaryEntry   DiaryEntry     @relation(fields: [diaryEntryId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  text         String?
+  attachments  Json? // [{ key, name, size, mime }] own ASSIGNMENT_SUBMISSION uploads
+  submittedAt  DateTime       @default(now())
+  checked      Boolean        @default(false)
+  checkedAt    DateTime?
+  checkedById  String?
+  grade        String? // e.g. A+, A, B
+  stars        Int? // 1–5
+  remarks      String?
+
+  @@unique([diaryEntryId, studentId])
+  @@index([studentId])
+}
+
+enum LiveClassPlatform {
+  GOOGLE_MEET
+  ZOOM
+  OTHER
+}
+
+/// End-of-lesson quick quiz / poll for a live class (PDF2 Teacher 1).
+model LiveClassPoll {
+  id              String                  @id @default(cuid())
+  liveClassId     String
+  liveClass       LiveClass               @relation(fields: [liveClassId], references: [id], onDelete: Cascade)
+  question        String
+  options         Json // string[] (2–6)
+  correctOption   Int? // index into options; null = opinion poll
+  durationSeconds Int                     @default(120)
+  openedAt        DateTime?
+  closesAt        DateTime?
+  createdAt       DateTime                @default(now())
+  responses       LiveClassPollResponse[]
+
+  @@index([liveClassId])
+}
+
+model LiveClassPollResponse {
+  id        String         @id @default(cuid())
+  pollId    String
+  poll      LiveClassPoll  @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  option    Int
+  createdAt DateTime       @default(now())
+
+  @@unique([pollId, studentId])
 }

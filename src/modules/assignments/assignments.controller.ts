@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -18,6 +19,7 @@ import { AssignmentsService } from './assignments.service';
 import {
   CreateAssignmentDto,
   GradeSubmissionDto,
+  MyAssignmentsQueryDto,
   SubmitAssignmentDto,
   UpdateAssignmentDto,
 } from './dto/assignment.dto';
@@ -27,6 +29,20 @@ import {
 @Controller()
 export class AssignmentsController {
   constructor(private readonly svc: AssignmentsService) {}
+
+  /** Teacher (own courses) / admin: every assignment with class, subject and counts; filters class, subject, created / due dates. */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('me/assignments')
+  mine(@CurrentUser() user: AuthUser, @Query() q: MyAssignmentsQueryDto) {
+    return this.svc.listMine(user, q);
+  }
+
+  /** Teacher / admin: every enrolled student with on-time / late / missing and the grade. */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('assignments/:id/roster')
+  roster(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.roster(id, user);
+  }
 
   @Roles(Role.ADMIN, Role.TEACHER)
   @Post('courses/:courseId/assignments')
@@ -39,13 +55,13 @@ export class AssignmentsController {
   }
 
   @Get('courses/:courseId/assignments')
-  list(@Param('courseId') courseId: string) {
-    return this.svc.listForCourse(courseId);
+  list(@Param('courseId') courseId: string, @CurrentUser() user: AuthUser) {
+    return this.svc.listForCourse(courseId, user);
   }
 
   @Get('assignments/:id')
-  get(@Param('id') id: string) {
-    return this.svc.get(id);
+  get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.get(id, user);
   }
 
   @Roles(Role.ADMIN, Role.TEACHER)

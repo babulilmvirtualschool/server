@@ -4,16 +4,29 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MediaPurpose, Prisma, Role } from '@prisma/client';
+import { EnrollmentStatus, MediaPurpose, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
+  AttachmentDto,
   CreateAssignmentDto,
   GradeSubmissionDto,
+  MyAssignmentsQueryDto,
   SubmitAssignmentDto,
   UpdateAssignmentDto,
 } from './dto/assignment.dto';
+import { ownUploads } from '../../common/utils/own-uploads';
 import { publicUserSelect } from '../../common/utils/public-user.select';
+
+const utcDay = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+
+const courseLabelSelect = {
+  id: true,
+  sectionId: true,
+  subject: { select: { id: true, name: true } },
+  section: { select: { id: true, name: true, class: { select: { name: true } } } },
+} as const;
 
 @Injectable()
 export class AssignmentsService {
@@ -30,55 +43,120 @@ export class AssignmentsService {
     if (c.teacher.userId !== user.id) throw new ForbiddenException();
   }
 
+  private ownFiles(user: AuthUser, files: AttachmentDto[], purpose: MediaPurpose) {
+    return ownUploads(this.prisma, user, files, purpose);
+  }
+
   async create(courseId: string, user: AuthUser, dto: CreateAssignmentDto) {
     await this.assertCourseTeacher(courseId, user);
+    const attachments = dto.attachments?.length
+      ? await this.ownFiles(user, dto.attachments, MediaPurpose.ASSIGNMENT_ATTACHMENT)
+      : null;
+    const published = dto.isPublished ?? true;
     return this.prisma.assignment.create({
       data: {
         courseId,
-        title: dto.title,
-        description: dto.description,
+        title: dto.title.trim(),
+        description: dto.description?.trim() || null,
         lessonId: dto.lessonId,
         topicId: dto.topicId,
         maxMarks: dto.maxMarks,
         dueDate: new Date(dto.dueDate),
         allowLate: dto.allowLate ?? true,
-        attachments: dto.attachments
-          ? (dto.attachments as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
+        isPublished: published,
+        publishedAt: published ? new Date() : null,
+        attachments: attachments ? (attachments as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
   }
 
-  listForCourse(courseId: string) {
+  /** Students only see published assignments. */
+  listForCourse(courseId: string, user: AuthUser) {
     return this.prisma.assignment.findMany({
-      where: { courseId },
+      where: { courseId, ...(user.role === Role.STUDENT || user.role === Role.PARENT ? { isPublished: true } : {}) },
       orderBy: { dueDate: 'asc' },
       include: { _count: { select: { submissions: true } } },
     });
   }
 
-  async get(id: string) {
+  async get(id: string, user: AuthUser) {
     const a = await this.prisma.assignment.findUnique({
       where: { id },
       include: { course: { include: { subject: true, section: true } } },
     });
-    if (!a) throw new NotFoundException();
+    if (!a || (!a.isPublished && (user.role === Role.STUDENT || user.role === Role.PARENT))) throw new NotFoundException();
     return a;
+  }
+
+  /** Teacher (own courses) / admin (all): assignments with class, subject and submission counts. */
+  async listMine(user: AuthUser, q: MyAssignmentsQueryDto) {
+    if (user.role !== Role.ADMIN && user.role !== Role.TEACHER) throw new ForbiddenException();
+    const rows = await this.prisma.assignment.findMany({
+      where: {
+        ...(q.courseId ? { courseId: q.courseId } : {}),
+        ...(q.status ? { isPublished: q.status === 'PUBLISHED' } : {}),
+        ...(q.createdFrom || q.createdTo
+          ? { createdAt: { ...(q.createdFrom ? { gte: utcDay(q.createdFrom) } : {}), ...(q.createdTo ? { lt: new Date(utcDay(q.createdTo).getTime() + 86_400_000) } : {}) } }
+          : {}),
+        ...(q.dueFrom || q.dueTo
+          ? { dueDate: { ...(q.dueFrom ? { gte: utcDay(q.dueFrom) } : {}), ...(q.dueTo ? { lt: new Date(utcDay(q.dueTo).getTime() + 86_400_000) } : {}) } }
+          : {}),
+        course: {
+          ...(user.role === Role.TEACHER ? { teacher: { userId: user.id } } : {}),
+          ...(q.sectionId ? { sectionId: q.sectionId } : {}),
+          ...(q.subjectId ? { subjectId: q.subjectId } : {}),
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 500,
+      include: {
+        course: { select: courseLabelSelect },
+        submissions: { select: { isLate: true, grade: { select: { id: true } } } },
+      },
+    });
+    const sectionIds = [...new Set(rows.map((r) => r.course.sectionId))];
+    const counts = sectionIds.length
+      ? await this.prisma.studentEnrollment.groupBy({
+          by: ['sectionId'],
+          where: { sectionId: { in: sectionIds }, status: EnrollmentStatus.ACTIVE },
+          _count: { _all: true },
+        })
+      : [];
+    return rows.map(({ submissions, course, ...a }) => ({
+      ...a,
+      course: { id: course.id, subject: course.subject, section: course.section },
+      counts: {
+        students: counts.find((c) => c.sectionId === course.sectionId)?._count._all ?? 0,
+        submitted: submissions.length,
+        late: submissions.filter((s) => s.isLate).length,
+        graded: submissions.filter((s) => s.grade).length,
+      },
+    }));
   }
 
   async update(id: string, user: AuthUser, dto: UpdateAssignmentDto) {
     const a = await this.prisma.assignment.findUnique({ where: { id } });
     if (!a) throw new NotFoundException();
     await this.assertCourseTeacher(a.courseId, user);
+    let attachments: Prisma.InputJsonValue | undefined;
+    if (dto.attachments !== undefined) {
+      // Files already on the assignment stay valid; new ones must be the caller's own uploads.
+      const old = ((a.attachments ?? []) as unknown as { key: string }[]).map((f) => f.key);
+      const fresh = dto.attachments.filter((f) => !old.includes(f.key));
+      const kept = ((a.attachments ?? []) as unknown as AttachmentDto[]).filter((f) => dto.attachments!.some((d) => d.key === f.key));
+      const added = fresh.length ? await this.ownFiles(user, fresh, MediaPurpose.ASSIGNMENT_ATTACHMENT) : [];
+      attachments = [...kept, ...added] as unknown as Prisma.InputJsonValue;
+    }
+    const { attachments: _a, ...rest } = dto;
     return this.prisma.assignment.update({
       where: { id },
       data: {
-        ...dto,
+        ...rest,
+        ...(rest.title !== undefined ? { title: rest.title.trim() } : {}),
+        ...(rest.description !== undefined ? { description: rest.description?.trim() || null } : {}),
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-        attachments:
-          dto.attachments === undefined
-            ? undefined
-            : (dto.attachments as unknown as Prisma.InputJsonValue),
+        ...(dto.isPublished === true && !a.isPublished ? { publishedAt: new Date() } : {}),
+        ...(attachments !== undefined ? { attachments } : {}),
       },
     });
   }
@@ -101,7 +179,7 @@ export class AssignmentsService {
       where: { id: assignmentId },
       include: { course: true },
     });
-    if (!assignment) throw new NotFoundException();
+    if (!assignment || !assignment.isPublished) throw new NotFoundException();
 
     const student = await this.prisma.studentProfile.findUnique({
       where: { userId: user.id },
@@ -129,36 +207,10 @@ export class AssignmentsService {
       );
     }
 
-    // Files must be the student's own finished uploads for assignment submissions;
-    // name/size/type are taken from the upload record, not from the request.
-    let attachments: Prisma.InputJsonValue | undefined;
-    if (dto.attachments !== undefined) {
-      const keys = dto.attachments.map((a) => a.key);
-      if (new Set(keys).size !== keys.length) {
-        throw new BadRequestException('The same file is attached twice');
-      }
-      const assets = await this.prisma.mediaAsset.findMany({
-        where: { key: { in: keys } },
-      });
-      const valid = (key: string) => {
-        const m = assets.find((x) => x.key === key);
-        return (
-          !!m &&
-          m.uploaderId === user.id &&
-          m.finalized &&
-          m.purpose === MediaPurpose.ASSIGNMENT_SUBMISSION
-        );
-      };
-      if (!keys.every(valid)) {
-        throw new BadRequestException(
-          'One or more files were not uploaded by you for this submission',
-        );
-      }
-      attachments = dto.attachments.map((a) => {
-        const m = assets.find((x) => x.key === a.key)!;
-        return { key: a.key, name: m.originalName ?? a.name, size: m.size, mime: m.mimeType };
-      });
-    }
+    const attachments =
+      dto.attachments !== undefined
+        ? ((await this.ownFiles(user, dto.attachments, MediaPurpose.ASSIGNMENT_SUBMISSION)) as unknown as Prisma.InputJsonValue)
+        : undefined;
 
     const textAnswer =
       dto.textAnswer !== undefined
@@ -211,6 +263,48 @@ export class AssignmentsService {
     });
   }
 
+  /**
+   * Every student actively enrolled in the class, with their submission: on time, late, or not submitted
+   * (PDF2 Teacher 2 "Assignment received after completion (due date or after due date)").
+   */
+  async roster(assignmentId: string, user: AuthUser) {
+    const a = await this.prisma.assignment.findUnique({
+      where: { id: assignmentId },
+      include: { course: { select: courseLabelSelect } },
+    });
+    if (!a) throw new NotFoundException();
+    await this.assertCourseTeacher(a.courseId, user);
+    const [enrolled, submissions] = await Promise.all([
+      this.prisma.studentEnrollment.findMany({
+        where: { sectionId: a.course.sectionId, status: EnrollmentStatus.ACTIVE },
+        select: { rollNumber: true, student: { select: { id: true, user: { select: { firstName: true, lastName: true, avatarKey: true } } } } },
+      }),
+      this.prisma.assignmentSubmission.findMany({ where: { assignmentId }, include: { grade: true } }),
+    ]);
+    const rows = enrolled
+      .map((e) => {
+        const sub = submissions.find((s) => s.studentId === e.student.id) ?? null;
+        return {
+          student: { id: e.student.id, name: name(e.student.user), rollNumber: e.rollNumber, avatarKey: e.student.user.avatarKey },
+          status: sub ? (sub.isLate ? 'LATE' : 'ON_TIME') : 'MISSING',
+          submission: sub,
+        };
+      })
+      .sort((x, y) => (x.student.rollNumber ?? '').localeCompare(y.student.rollNumber ?? '', undefined, { numeric: true }) || x.student.name.localeCompare(y.student.name));
+    const { course, ...assignment } = a;
+    return {
+      assignment: { ...assignment, course: { id: course.id, subject: course.subject, section: course.section } },
+      rows,
+      counts: {
+        students: rows.length,
+        onTime: rows.filter((r) => r.status === 'ON_TIME').length,
+        late: rows.filter((r) => r.status === 'LATE').length,
+        missing: rows.filter((r) => r.status === 'MISSING').length,
+        graded: rows.filter((r) => r.submission?.grade).length,
+      },
+    };
+  }
+
   async mySubmission(assignmentId: string, user: AuthUser) {
     if (user.role !== Role.STUDENT) throw new ForbiddenException();
     const student = await this.prisma.studentProfile.findUnique({
@@ -228,6 +322,7 @@ export class AssignmentsService {
     });
   }
 
+  /** Marks (≤ max marks), digital stars (1–5) and / or an emoji, plus optional feedback. */
   async grade(
     submissionId: string,
     user: AuthUser,
@@ -239,25 +334,26 @@ export class AssignmentsService {
     });
     if (!sub) throw new NotFoundException();
     await this.assertCourseTeacher(sub.assignment.courseId, user);
-    if (dto.marksObtained > sub.assignment.maxMarks) {
-      throw new BadRequestException(
-        `marksObtained exceeds maxMarks (${sub.assignment.maxMarks})`,
-      );
+    if (dto.marksObtained == null && dto.stars == null && !dto.emoji) {
+      throw new BadRequestException({ message: 'Give marks, stars or an emoji.', fields: { marksObtained: 'Give marks, stars or an emoji' } });
     }
+    if (dto.marksObtained != null && dto.marksObtained > sub.assignment.maxMarks) {
+      throw new BadRequestException({
+        message: `Marks can't be more than ${sub.assignment.maxMarks}.`,
+        fields: { marksObtained: `At most ${sub.assignment.maxMarks}` },
+      });
+    }
+    const data = {
+      marksObtained: dto.marksObtained ?? null,
+      stars: dto.stars ?? null,
+      emoji: dto.emoji ?? null,
+      feedback: dto.feedback?.trim() || null,
+      gradedById: user.id,
+    };
     return this.prisma.assignmentGrade.upsert({
       where: { submissionId },
-      update: {
-        marksObtained: dto.marksObtained,
-        feedback: dto.feedback,
-        gradedById: user.id,
-        gradedAt: new Date(),
-      },
-      create: {
-        submissionId,
-        marksObtained: dto.marksObtained,
-        feedback: dto.feedback,
-        gradedById: user.id,
-      },
+      update: { ...data, gradedAt: new Date() },
+      create: { submissionId, ...data },
     });
   }
 }

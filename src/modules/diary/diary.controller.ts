@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -16,8 +17,11 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { DiaryService } from './diary.service';
 import {
+  CheckDiaryHomeworkDto,
   DiaryDayQueryDto,
   DiaryRangeQueryDto,
+  MyDiaryHomeworkQueryDto,
+  SubmitDiaryHomeworkDto,
   UpsertDiaryEntryDto,
 } from './dto/diary.dto';
 
@@ -63,5 +67,29 @@ export class DiaryController {
     @Query() q: DiaryDayQueryDto,
   ) {
     return this.diary.forChild(user, studentId, q.date);
+  }
+
+  @Roles(Role.STUDENT)
+  @Post('diary/:id/homework')
+  submitHomework(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: SubmitDiaryHomeworkDto) {
+    return this.diary.submitHomework(user, id, dto);
+  }
+
+  @Roles(Role.STUDENT)
+  @Get('me/diary-homework')
+  myHomework(@CurrentUser() user: AuthUser, @Query() q: MyDiaryHomeworkQueryDto) {
+    return this.diary.myHomework(user, q);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('diary/:id/homework')
+  homeworkRoster(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.diary.homeworkRoster(user, id);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Patch('diary-homework/:id')
+  checkHomework(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CheckDiaryHomeworkDto) {
+    return this.diary.checkHomework(user, id, dto);
   }
 }

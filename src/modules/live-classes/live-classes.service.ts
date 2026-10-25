@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LiveClassStatus, Role } from '@prisma/client';
+import { LiveClassPlatform, LiveClassStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
@@ -12,6 +12,31 @@ import {
   UpdateLiveClassDto,
 } from './dto/live-class.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
+
+/** Google Meet / Zoom from the link (PDF2 Teacher 1: both "Google Meet" & "Zoom"). */
+function platformOf(link: string): LiveClassPlatform {
+  const host = (() => {
+    try {
+      return new URL(link).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
+  })();
+  if (host === 'meet.google.com') return LiveClassPlatform.GOOGLE_MEET;
+  if (host === 'zoom.us' || host.endsWith('.zoom.us')) return LiveClassPlatform.ZOOM;
+  return LiveClassPlatform.OTHER;
+}
+
+/** The chosen platform must match the link (a Zoom class needs a zoom.us link, Google Meet a meet.google.com link). */
+function checkPlatform(link: string, platform?: LiveClassPlatform) {
+  const found = platformOf(link);
+  if (!platform || platform === LiveClassPlatform.OTHER) return platform ?? found;
+  if (found !== platform) {
+    const want = platform === LiveClassPlatform.ZOOM ? 'a Zoom link (zoom.us)' : 'a Google Meet link (meet.google.com)';
+    throw new BadRequestException({ message: `Paste ${want}.`, fields: { meetingLink: `Paste ${want}` } });
+  }
+  return platform;
+}
 
 @Injectable()
 export class LiveClassesService {
@@ -56,6 +81,7 @@ export class LiveClassesService {
         title: dto.title,
         description: dto.description,
         meetingLink: dto.meetingLink,
+        platform: checkPlatform(dto.meetingLink, dto.platform),
         scheduledStart: start,
         scheduledEnd: end,
         joinBufferMinutes: dto.joinBufferMinutes ?? 10,
@@ -123,10 +149,13 @@ export class LiveClassesService {
     ) {
       throw new ForbiddenException();
     }
+    const link = dto.meetingLink ?? lc.meetingLink;
+    const platform = dto.meetingLink !== undefined || dto.platform !== undefined ? checkPlatform(link, dto.platform ?? (dto.meetingLink ? undefined : lc.platform)) : undefined;
     return this.prisma.liveClass.update({
       where: { id },
       data: {
         ...dto,
+        ...(platform ? { platform } : {}),
         scheduledStart: dto.scheduledStart
           ? new Date(dto.scheduledStart)
           : undefined,
