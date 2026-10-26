@@ -6,10 +6,14 @@ import {
 } from '@nestjs/common';
 import {
   AttemptStatus,
+  EnrollmentStatus,
+  MediaPurpose,
+  Prisma,
   QuestionType,
   Role,
   ShowResultsPolicy,
 } from '@prisma/client';
+import { ownUploads } from '../../common/utils/own-uploads';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import {
@@ -70,9 +74,10 @@ export class QuizzesService {
     });
   }
 
-  listForCourse(courseId: string) {
+  /** Students / parents only see published quizzes. */
+  listForCourse(courseId: string, user: AuthUser) {
     return this.prisma.quiz.findMany({
-      where: { courseId },
+      where: { courseId, ...(user.role === Role.STUDENT || user.role === Role.PARENT ? { isPublished: true } : {}) },
       orderBy: { startAt: 'desc' },
       include: { _count: { select: { questions: true, attempts: true } } },
     });
@@ -350,6 +355,10 @@ export class QuizzesService {
       if (attempt.studentId !== student.id) throw new ForbiddenException();
     }
 
+    // Results (correct options, marks, score) are shown to the student only when the quiz's policy allows it.
+    const hideResults =
+      user.role === Role.STUDENT &&
+      (attempt.status === AttemptStatus.IN_PROGRESS || !QuizzesService.resultsVisible(attempt.quiz.showResultsAfter, attempt.quiz.endAt, attempt.status));
     const questionMap = new Map(
       attempt.quiz.questions.map((q) => [q.id, q]),
     );
@@ -365,7 +374,7 @@ export class QuizzesService {
         .map((oid) => optMap.get(oid))
         .filter(Boolean)
         .map((o: any) =>
-          attempt.status === AttemptStatus.IN_PROGRESS && user.role === Role.STUDENT
+          hideResults
             ? { id: o.id, text: o.text, orderIndex: o.orderIndex }
             : o,
         );
@@ -393,12 +402,16 @@ export class QuizzesService {
       startedAt: attempt.startedAt,
       deadlineAt: attempt.deadlineAt,
       violationCount: attempt.violationCount,
-      score: attempt.score,
+      score: hideResults ? null : attempt.score,
+      resultsVisible: !hideResults,
+      totalMarks: attempt.quiz.totalMarks,
       questions: orderedView,
       answers: attempt.answers.map((a) => ({
         questionId: a.questionId,
         selectedOptionIds: a.selectedOptionIds,
         textAnswer: a.textAnswer,
+        attachments: a.attachments,
+        ...(hideResults ? {} : { marksAwarded: a.marksAwarded, isCorrect: a.isCorrect }),
       })),
     };
   }
@@ -406,6 +419,11 @@ export class QuizzesService {
   async saveAnswer(attemptId: string, user: AuthUser, dto: SaveAnswerDto) {
     if (user.role !== Role.STUDENT) throw new ForbiddenException();
     const attempt = await this.getInProgressAttempt(attemptId, user);
+    let attachments: Prisma.InputJsonValue | undefined;
+    if (dto.attachments !== undefined) {
+      if (dto.attachments.length > 5) throw new BadRequestException('Attach at most 5 files.');
+      attachments = (await ownUploads(this.prisma, user, dto.attachments, MediaPurpose.ASSIGNMENT_SUBMISSION)) as unknown as Prisma.InputJsonValue;
+    }
 
     return this.prisma.quizAnswer.upsert({
       where: {
@@ -417,6 +435,7 @@ export class QuizzesService {
       update: {
         selectedOptionIds: dto.selectedOptionIds ?? [],
         textAnswer: dto.textAnswer,
+        ...(attachments !== undefined ? { attachments } : {}),
         answeredAt: new Date(),
       },
       create: {
@@ -424,6 +443,7 @@ export class QuizzesService {
         questionId: dto.questionId,
         selectedOptionIds: dto.selectedOptionIds ?? [],
         textAnswer: dto.textAnswer,
+        ...(attachments !== undefined ? { attachments } : {}),
       },
     });
   }
@@ -557,7 +577,7 @@ export class QuizzesService {
     for (const ans of attempt.answers) {
       const q = questionMap.get(ans.questionId);
       if (!q) continue;
-      if (q.type === QuestionType.SHORT_ANSWER || q.type === QuestionType.LONG_ANSWER) {
+      if (q.type === QuestionType.SHORT_ANSWER || q.type === QuestionType.LONG_ANSWER || q.type === QuestionType.FILE_UPLOAD) {
         hasSubjective = true;
         continue;
       }
@@ -653,5 +673,46 @@ export class QuizzesService {
       });
     });
     return this.prisma.quizAttempt.findUnique({ where: { id: attemptId } });
+  }
+
+  /** Whether a student may see marks / correct answers of a finished attempt. */
+  static resultsVisible(policy: ShowResultsPolicy, endAt: Date, status: AttemptStatus) {
+    if (policy === ShowResultsPolicy.IMMEDIATELY || policy === ShowResultsPolicy.AFTER_SUBMISSION) return true;
+    if (policy === ShowResultsPolicy.AFTER_END) return new Date() > endAt;
+    return status === AttemptStatus.GRADED; // MANUAL: once the teacher has graded it
+  }
+
+  /** Teacher: quizzes of own courses with counts. Student: published quizzes of own classes with their attempt (subject and date wise). */
+  async listMine(user: AuthUser) {
+    const courseInclude = { subject: { select: { name: true } }, section: { select: { name: true, class: { select: { name: true } } } } } as const;
+    if (user.role === Role.TEACHER) {
+      return this.prisma.quiz.findMany({
+        where: { course: { teacher: { userId: user.id } } },
+        include: { course: { select: { id: true, ...courseInclude } }, examPaper: { select: { id: true } }, _count: { select: { questions: true, attempts: true } } },
+        orderBy: { startAt: 'desc' },
+        take: 300,
+      });
+    }
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { userId: user.id },
+      select: { id: true, enrollments: { where: { status: EnrollmentStatus.ACTIVE }, select: { sectionId: true } } },
+    });
+    if (!student) throw new ForbiddenException('Student profile not found');
+    const quizzes = await this.prisma.quiz.findMany({
+      where: { isPublished: true, course: { sectionId: { in: student.enrollments.map((e) => e.sectionId) } } },
+      include: {
+        course: { select: { id: true, ...courseInclude } },
+        examPaper: { select: { id: true } },
+        attempts: { where: { studentId: student.id }, orderBy: { attemptNumber: 'desc' }, select: { id: true, status: true, score: true, submittedAt: true, attemptNumber: true } },
+        _count: { select: { questions: true } },
+      },
+      orderBy: { startAt: 'desc' },
+      take: 300,
+    });
+    return quizzes.map(({ attempts, ...q }) => {
+      const last = attempts[0] ?? null;
+      const visible = last ? QuizzesService.resultsVisible(q.showResultsAfter, q.endAt, last.status) : false;
+      return { ...q, attemptsUsed: attempts.length, lastAttempt: last ? { ...last, score: visible ? last.score : null } : null };
+    });
   }
 }

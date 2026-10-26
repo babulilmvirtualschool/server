@@ -170,7 +170,25 @@ export class AnswerDto {
   textAnswer?: string;
 }
 
-export class SaveAnswerDto extends AnswerDto {}
+export class QuizFileDto {
+  @ApiProperty()
+  @IsString()
+  key!: string;
+
+  @ApiProperty()
+  @IsString()
+  name!: string;
+}
+
+/** Autosaved answer; FILE_UPLOAD questions send the student's own ASSIGNMENT_SUBMISSION uploads (max 5). */
+export class SaveAnswerDto extends AnswerDto {
+  @ApiPropertyOptional({ type: [QuizFileDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuizFileDto)
+  attachments?: QuizFileDto[];
+}
 
 export class SubmitAttemptDto {
   @ApiPropertyOptional({ type: [AnswerDto] })

@@ -148,6 +148,7 @@ model TeacherProfile {
   salaryPayments   SalaryPayment[]
   salaryAdvances   SalaryAdvance[]
   salaryFines      SalaryFine[]
+  invigilations    ExamPaper[] @relation("ExamInvigilator")
   liveClasses      LiveClass[]
   attendanceRecords TeacherAttendanceRecord[]
   staffTiming       StaffTiming?
@@ -640,6 +641,7 @@ enum QuestionType {
   TRUE_FALSE
   SHORT_ANSWER
   LONG_ANSWER
+  FILE_UPLOAD
 }
 
 enum AttemptStatus {
@@ -749,6 +751,7 @@ model QuizAnswer {
   question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
   selectedOptionIds String[]
   textAnswer      String?
+  attachments     Json? // FILE_UPLOAD answers: [{ key, name, size, mime }]
   marksAwarded    Float?
   isCorrect       Boolean?
   answeredAt      DateTime @default(now())
@@ -803,7 +806,19 @@ model ExamPaper {
   scheduledAt  DateTime
   durationMinutes Int
   maxMarks     Int
-  venue        String?
+  venue        String? // hall / room
+  /// PDF1 10.1 exam / online test fields.
+  title          String?
+  mode           ExamPaperMode @default(MANUAL)
+  passingPercent Float?
+  weightage      Float? // % for the final result compilation
+  paperCode      String?
+  invigilatorId  String?
+  invigilator    TeacherProfile? @relation("ExamInvigilator", fields: [invigilatorId], references: [id], onDelete: SetNull)
+  instructions   String?
+  /// Question paper file students can open once the exam starts (PDF2 Student 2 "exams (file, text, Online Quiz)").
+  paperFileKey   String?
+  paperFileName  String?
   results      ExamResult[]
   questions    ExamPaperQuestion[]
 
@@ -1701,4 +1716,9 @@ model LiveClassPollResponse {
   createdAt DateTime       @default(now())
 
   @@unique([pollId, studentId])
+}
+
+enum ExamPaperMode {
+  MANUAL
+  ONLINE
 }

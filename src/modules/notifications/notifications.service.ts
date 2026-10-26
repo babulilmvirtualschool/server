@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { StaffAlertDto } from './dto/staff-alert.dto';
 
 @Injectable()
 export class NotificationsService {
@@ -42,5 +43,18 @@ export class NotificationsService {
     return this.prisma.notification.create({
       data: { userId, type, title, body, data: data as any },
     });
+  }
+
+  /** Admin — put an emergency / security alert or notice in the portal of every active teacher and / or non-teaching staff member. */
+  async alertStaff(dto: StaffAlertDto) {
+    const roles = dto.audience === 'TEACHERS' ? ['TEACHER'] : dto.audience === 'NON_TEACHING' ? ['STAFF'] : ['TEACHER', 'STAFF'];
+    const users = await this.prisma.user.findMany({ where: { isActive: true, role: { in: roles as any } }, select: { id: true } });
+    const title = dto.title?.trim() || (dto.kind === 'EMERGENCY' ? 'Emergency alert' : dto.kind === 'SECURITY' ? 'Security alert' : 'Notice');
+    if (users.length) {
+      await this.prisma.notification.createMany({
+        data: users.map((u) => ({ userId: u.id, type: `${dto.kind}_ALERT`, title, body: dto.body.trim(), data: { audience: dto.audience } })),
+      });
+    }
+    return { sent: users.length };
   }
 }

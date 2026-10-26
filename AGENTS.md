@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (27) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 8 `20261025060000_assignments_diary_homework_live_polls`.
+- Migrations (28) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 9 `20261026060000_exam_setup_online_tests`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -213,6 +213,17 @@ Patterns to copy:
   when not given, a chosen platform must match the link's host — existing rows were set from their link). `LiveClassPoll` (VIA liveClass: question,
   options Json string[2–6], `correctOption?`, `durationSeconds` 30–600 (default 120), `openedAt` / `closesAt` — open while closesAt > now) and
   `LiveClassPollResponse` (VIA poll → liveClass: poll + student unique, option). The correct option is shown to students only after the poll closes.
+- Day 9 (2026-10-26, migration `20261026060000_exam_setup_online_tests`, additive): **exam / online test setup** (PDF1 10.1 / 10.2) on `ExamPaper`:
+  `title` (default "Exam name — Subject"), `mode` (ExamPaperMode MANUAL | ONLINE, default MANUAL), `passingPercent`, `weightage` (% for the final result),
+  `paperCode`, `invigilatorId` (→ TeacherProfile, SetNull; teachers or non-teaching staff), `instructions`, `paperFileKey` / `paperFileName` (the
+  creator's own CONTENT_DOCUMENT upload). An ONLINE paper owns a `Quiz` (`isExam`, 1 attempt, results AFTER_END, open exactly start → start + duration,
+  pass marks from passing %, unpublished until the teacher publishes it); rescheduling / renaming / instructions keep it in sync, switching to MANUAL
+  deletes it (409 once taken), deleting the paper deletes it (409 once taken or with results). `QuestionType.FILE_UPLOAD` (answer = the student's own
+  ASSIGNMENT_SUBMISSION uploads in `QuizAnswer.attachments`, max 5, marked by hand like SHORT/LONG). Teachers may add exam sessions and create /
+  edit / delete / duplicate papers of **their own courses** (PDF2 Teacher 3); publishing or editing a session stays admin-only. Student / parent
+  quiz lists hide unpublished quizzes, and `GET attempts/:id` now follows `showResultsAfter` (score, marks, correct options hidden until allowed).
+  **Staff alerts**: `POST notifications/staff-alert` creates `EMERGENCY_ALERT | SECURITY_ALERT | NOTICE_ALERT` notifications for active teachers and / or
+  non-teaching staff (the web shows them in the bell and as a banner).
 - Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
   `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
   `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
@@ -334,11 +345,24 @@ S: `POST quizzes/:id/attempts` (start or resume; server-side shuffles; `deadline
 `POST attempts/:attemptId/answers` (`{questionId, selectedOptionIds?, textAnswer?}`), `POST attempts/:attemptId/violations`
 (`{type: TAB_SWITCH|WINDOW_BLUR|FULLSCREEN_EXIT|COPY|PASTE|CONTEXTMENU|DEVTOOLS|NETWORK_LOSS, metadata?}`; auto-submit at `maxViolations`),
 `POST attempts/:attemptId/submit` (`{answers?}`). Objective questions auto-graded (negative marking supported); any
-SHORT/LONG answer leaves status SUBMITTED until manual grade. `totalMarks` is recomputed on question changes.
+SHORT/LONG/FILE_UPLOAD answer leaves status SUBMITTED until manual grade. `totalMarks` is recomputed on question changes.
+Day 9: `GET courses/:courseId/quizzes` hides drafts from S/P; `POST attempts/:attemptId/answers` also takes `attachments: [{key, name}]` (own
+ASSIGNMENT_SUBMISSION uploads, ≤5); `GET attempts/:attemptId` adds `resultsVisible`, `totalMarks`, answer `attachments` and (when visible)
+`marksAwarded` / `isCorrect` — results follow `showResultsAfter` (IMMEDIATELY / AFTER_SUBMISSION, AFTER_END = after `endAt`, MANUAL = once GRADED);
+T,S: `GET me/quizzes` (T: own courses' quizzes with `examPaper` + `_count`; S: published quizzes of my classes with `attemptsUsed` and
+`lastAttempt`, score hidden by the same rule).
 
-**exams** — A: `POST exams`, `PATCH|DELETE exams/:id`, `POST exams/:id/papers` (course must be in the exam's year; 409 if the subject
-already has a paper), `GET|PATCH|DELETE exam-papers/:paperId` (GET = generated paper with ordered bank questions + `questionMarks`;
-DELETE refused with 409 once results exist), `PUT exam-papers/:paperId/questions` (`{questionIds}` in order, same subject only),
+**exams** — A,T: `POST exams` (teachers too since Day 9); A: `PATCH|DELETE exams/:id` (`published` = date sheet visible to students);
+A,T(own course): `POST exams/:id/papers` (course must be in the exam's year; 409 if the subject already has a paper; Day 9 fields `title, mode
+MANUAL|ONLINE, passingPercent, weightage, paperCode, invigilatorId, instructions, paperFile {key,name}` — see §5 Day 9), `PATCH|DELETE
+exam-papers/:paperId` (PATCH `paperFile: null` removes the file, `invigilatorId: ""` clears; DELETE refused with 409 once results exist or the online
+test was taken), `POST exam-papers/:paperId/duplicate` (`{courseId, examId?, scheduledAt?}`, copies the online test questions);
+A,T: `GET exam-papers?academicYearId&examId&courseId&sectionId&classId&examType&mode&status=UPCOMING|ACTIVE|COMPLETED&from&to&mine=true`
+(rows with `endAt`, `status`, `classLabel`, `invigilator`, `quiz` counts, `canEdit`), `GET exams/:id/conflicts` (papers of the year overlapping this
+exam's papers: same class, same room (case-insensitive) or same invigilator → `{conflicts:[{type CLASS|ROOM|INVIGILATOR, detail, papers}]}`),
+`GET exam-invigilators` (active teachers + non-teaching staff `{id, name, employeeCode, kind, designation}`); S: `GET me/exams` (published sessions of my
+classes; `paperFileKey`, `instructions` only from the start time; `quiz` + `myAttempt` with the score once the test is over);
+A: `GET exam-papers/:paperId` (generated paper with ordered bank questions + `questionMarks`), `PUT exam-papers/:paperId/questions` (`{questionIds}` in order, same subject only),
 `POST exam-papers/:paperId/publish`;
 A,T: `POST exam-papers/:paperId/results`, `POST exam-papers/:paperId/results/bulk` (array), `GET exam-papers/:paperId/results`;
 auth: `GET exams?academicYearId`, `GET exams/:id` (papers ordered by `scheduledAt`, with `_count.questions`); S: `GET me/results` (published only).
@@ -443,7 +467,8 @@ graded-assignment and quiz averages).
 **message-templates** (A) — `GET message-templates`, `POST` (`{kind, name ≤80, body ≤1500}`), `PATCH :id`, `DELETE :id` — WhatsApp
 click-to-chat wording per school (`modules/messages`).
 
-**notifications** — auth: `GET notifications?unread=true` (latest 100), `POST notifications/:id/read`, `POST notifications/read-all`.
+**notifications** — auth: `GET notifications?unread=true` (latest 100), `POST notifications/:id/read`, `POST notifications/read-all`;
+A: `POST notifications/staff-alert` (`{kind EMERGENCY|SECURITY|NOTICE, audience ALL_STAFF|TEACHERS|NON_TEACHING, title? ≤120, body ≤2000}` → `{sent}`).
 
 **media** — auth: `POST media/presign-upload` (`{purpose: MediaPurpose, mimeType, size ≤500MB, originalName?}` → key `tmp/<prefix>/<userId>/<ts>-<id><ext>`),
 `POST media/finalize` (`{key}`; own uploads, A any), `GET media/presign-download?key=`.
@@ -475,9 +500,9 @@ The droplet checkout is reset to `origin/main` on every deploy (a plain `git pul
 5. **Date-only timezone drift:** attendance/leave/teacher-attendance normalise with `setHours(0,0,0,0)` in the *server's* local
    timezone. On a UTC server this is correct; on a PKT (UTC+5) dev machine a `YYYY-MM-DD` input becomes the previous day in
    `@db.Date` columns. Prefer UTC-midnight parsing (`new Date(\`${d}T00:00:00.000Z\`)`) in new code; keep server TZ = UTC.
-6. Nothing calls `NotificationsService.push`, so the notifications inbox is always empty.
+6. Only staff alerts (`POST notifications/staff-alert`, Day 9) create notifications; nothing else calls `NotificationsService.push` yet.
 7. No rate limiting on `auth/login` / `auth/forgot-password` / public application endpoints.
-8. Quiz `showResultsAfter` is stored but not enforced in `GET attempts/:id` after submission.
+8. ~~Quiz `showResultsAfter` not enforced~~ — fixed 2026-10-26 (Day 9): `GET attempts/:id` and `me/quizzes` hide results until the policy allows.
 9. ~~`GradeSubmissionDto.marksObtained` is `@IsInt`~~ — fixed 2026-10-25 (Day 8): marks are `@IsNumber` (halves allowed) and optional.
 10. `README.md` deployment/env/scripts sections and `docs/roles/*.md` are out of date (see §10).
 

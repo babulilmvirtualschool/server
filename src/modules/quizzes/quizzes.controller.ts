@@ -43,8 +43,15 @@ export class QuizzesController {
   }
 
   @Get('courses/:courseId/quizzes')
-  list(@Param('courseId') courseId: string) {
-    return this.svc.listForCourse(courseId);
+  list(@Param('courseId') courseId: string, @CurrentUser() user: AuthUser) {
+    return this.svc.listForCourse(courseId, user);
+  }
+
+  /** PDF2 Student 4 "Show Quiz and Paper (Subject and date wise)"; teachers: quizzes of their own courses. */
+  @Roles(Role.TEACHER, Role.STUDENT)
+  @Get('me/quizzes')
+  mine(@CurrentUser() user: AuthUser) {
+    return this.svc.listMine(user);
   }
 
   @Get('quizzes/:id')

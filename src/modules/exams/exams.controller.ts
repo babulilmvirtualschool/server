@@ -20,6 +20,8 @@ import { ExamsService } from './exams.service';
 import {
   CreateExamDto,
   CreateExamPaperDto,
+  DuplicateExamPaperDto,
+  ListExamPapersQueryDto,
   RecordExamResultDto,
   SetPaperQuestionsDto,
   UpdateExamDto,
@@ -32,7 +34,8 @@ import {
 export class ExamsController {
   constructor(private readonly svc: ExamsService) {}
 
-  @Roles(Role.ADMIN)
+  /** PDF2 Teacher 3 "+Add Exams (do Same as from Admin Portal)": teachers may add exam sessions too. */
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Post('exams')
   create(@Body() dto: CreateExamDto) {
     return this.svc.createExam(dto);
@@ -60,10 +63,44 @@ export class ExamsController {
     return this.svc.deleteExam(id);
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Post('exams/:id/papers')
-  createPaper(@Param('id') id: string, @Body() dto: CreateExamPaperDto) {
-    return this.svc.createPaper(id, dto);
+  createPaper(@Param('id') id: string, @Body() dto: CreateExamPaperDto, @CurrentUser() user: AuthUser) {
+    return this.svc.createPaper(id, dto, user);
+  }
+
+  /** PDF1 10.1 exams / online tests with filters (course, class, exam type, mode, status, dates). */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('exam-papers')
+  listPapers(@Query() q: ListExamPapersQueryDto, @CurrentUser() user: AuthUser) {
+    return this.svc.listPapers(q, user);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Post('exam-papers/:paperId/duplicate')
+  duplicatePaper(@Param('paperId') paperId: string, @Body() dto: DuplicateExamPaperDto, @CurrentUser() user: AuthUser) {
+    return this.svc.duplicatePaper(paperId, dto, user);
+  }
+
+  /** PDF1 10.2 "Invigilator / Duty Teacher" picker: active teachers and non-teaching staff (teachers can't list users). */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('exam-invigilators')
+  invigilators() {
+    return this.svc.invigilators();
+  }
+
+  /** PDF1 10.2 Auto-detect room / teacher (invigilator) / class conflicts. */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('exams/:id/conflicts')
+  conflicts(@Param('id') id: string) {
+    return this.svc.conflicts(id);
+  }
+
+  /** PDF2 Student 2: published date sheets and exams (file, text, online test) of my classes. */
+  @Roles(Role.STUDENT)
+  @Get('me/exams')
+  myExams(@CurrentUser() user: AuthUser) {
+    return this.svc.myExams(user);
   }
 
   @Roles(Role.ADMIN)
@@ -72,19 +109,20 @@ export class ExamsController {
     return this.svc.getPaper(paperId);
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Patch('exam-papers/:paperId')
   updatePaper(
     @Param('paperId') paperId: string,
     @Body() dto: UpdateExamPaperDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.updatePaper(paperId, dto);
+    return this.svc.updatePaper(paperId, dto, user);
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Delete('exam-papers/:paperId')
-  deletePaper(@Param('paperId') paperId: string) {
-    return this.svc.deletePaper(paperId);
+  deletePaper(@Param('paperId') paperId: string, @CurrentUser() user: AuthUser) {
+    return this.svc.deletePaper(paperId, user);
   }
 
   @Roles(Role.ADMIN)

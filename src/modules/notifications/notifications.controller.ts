@@ -1,9 +1,12 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
+import { Roles } from '../../common/decorators/roles.decorator';
 import {
   AuthUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { StaffAlertDto } from './dto/staff-alert.dto';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('notifications')
@@ -28,5 +31,12 @@ export class NotificationsController {
   @Post('read-all')
   markAll(@CurrentUser() user: AuthUser) {
     return this.svc.markAllRead(user);
+  }
+
+  /** Admin — show an emergency / security alert or notice inside the teachers' and / or non-teaching staff's portal. */
+  @Roles(Role.ADMIN)
+  @Post('staff-alert')
+  staffAlert(@Body() dto: StaffAlertDto) {
+    return this.svc.alertStaff(dto);
   }
 }
