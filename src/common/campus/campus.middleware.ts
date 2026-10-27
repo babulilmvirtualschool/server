@@ -25,6 +25,8 @@ const DIRECT = new Set([
   'SiblingDiscountRule',
   'CashCategory',
   'CashEntry',
+  'GradeScale',
+  'ReportCardSettings',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -90,6 +92,9 @@ const VIA: Record<string, Scope> = {
   QuestionPaper: (c) => ({ subject: { campus: c } }),
   QuestionPaperItem: (c) => ({ paper: { subject: { campus: c } } }),
   ConductAssessment: student,
+  ResultTerm: year,
+  ResultEntry: (c) => ({ term: year(c) }),
+  ResultSummary: (c) => ({ term: year(c) }),
   StudentDischarge: student,
   StaffTiming: teacher,
   PeriodAttendance: teacher,
