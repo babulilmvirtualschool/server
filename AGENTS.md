@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (28) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 9 `20261026060000_exam_setup_online_tests`.
+- Migrations (29) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 10 `20261027060000_question_bank_paper_generator_conduct`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -224,9 +224,26 @@ Patterns to copy:
   quiz lists hide unpublished quizzes, and `GET attempts/:id` now follows `showResultsAfter` (score, marks, correct options hidden until allowed).
   **Staff alerts**: `POST notifications/staff-alert` creates `EMERGENCY_ALERT | SECURITY_ALERT | NOTICE_ALERT` notifications for active teachers and / or
   non-teaching staff (the web shows them in the bell and as a banner).
-- Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` = MCQ | FILL_BLANK — deliberately separate from quiz
-  `QuestionType`, text, `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain
-  `___`), marks). `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the generated paper.
+- Exam question bank: `BankQuestion` (subjectId, `type: BankQuestionType` — deliberately separate from quiz `QuestionType`, text, marks;
+  `options` Json `[{text,isCorrect}]` for MCQ (2–6, exactly one correct), `answer` for FILL_BLANK (text must contain `___`)).
+  `ExamPaperQuestion` (examPaperId, questionId → BankQuestion **Restrict**, orderIndex) = the **old** generated paper (legacy since Day 10; its rows were
+  copied into `QuestionPaper` by the Day 10 migration, `GET exam-papers/:paperId` / `PUT …/questions` still work but the web no longer calls them).
+- Day 10 (2026-10-27, migration `20261027060000_question_bank_paper_generator_conduct`, additive + one data copy): **question bank completed** (PDF1 11.1) —
+  `BankQuestionType` + TRUE_FALSE | TICK_CROSS (`answer` "TRUE" | "FALSE") | MATCHING (`pairs` Json `[{left,right}]` in the right order, 2–10; text defaults to
+  "Match Column A with Column B.") | SHORT | LONG (`answer` = optional solution key, `parts` Json `[{text, marks?, answer?}]` = (a)(b)(c)); new columns
+  `className` (text, so the bank outlives academic years), `chapterNo`, `chapterTitle`, `topic`, `difficulty` (QuestionDifficulty EASY | MEDIUM | HARD,
+  default MEDIUM), `explanation` (hints), `isActive`, `createdById` (→ User, SetNull). Teachers use the bank of the subjects they teach (any course with
+  that subject) and change only their own questions; admins everything. **Paper generator** (PDF1 12.1–12.3, `question-bank/question-papers.*`):
+  `PaperPattern` (VIA subject: name, className, chapters Int[], `rows` Json `[{chapterNo?, type, difficulty?, count, marks}]`, `header` Json
+  {schoolName, examName, totalMinutes, totalMarks, instructions}, createdById), `QuestionPaper` (VIA subject: title, schoolName, examName, className,
+  totalMinutes, totalMarks, instructions, chapters, `layout` {numbering ALPHA | ROMAN, options ROW | GRID}, status DRAFT | FINAL, optional `examPaperId`
+  @unique → ExamPaper SetNull, createdById) and `QuestionPaperItem` (VIA paper → subject: question → BankQuestion **Restrict**, orderIndex, marks override).
+  Automatic generation picks random **active** questions per row (chapter = the row's or the paper's chapters; class = the paper's or none); a bank question on
+  any paper can't be deleted (409 — make it inactive). The migration copied the old generated papers (ExamPaperQuestion) into QuestionPaper rows linked to
+  their exam paper (status FINAL). **Character & conduct** (PDF2 Admin 1, `modules/conduct`): `ConductAssessment` (VIA student: section, period
+  ConductPeriod WEEKLY | HALF_MONTHLY | MONTHLY, startDate / endDate / assessmentDate `@db.Date`, discipline, regularity, punctuality, obedience,
+  followingInstructions, homework, learning, overall = ConductRating EXCELLENT | GOOD | SATISFACTORY | NEEDS_IMPROVEMENT (each optional), remarks,
+  assessedById; unique student + period + startDate). Teachers rate classes they teach a subject in or are class teacher of; students / parents read only.
 - `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
   parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
@@ -367,8 +384,22 @@ A: `GET exam-papers/:paperId` (generated paper with ordered bank questions + `qu
 A,T: `POST exam-papers/:paperId/results`, `POST exam-papers/:paperId/results/bulk` (array), `GET exam-papers/:paperId/results`;
 auth: `GET exams?academicYearId`, `GET exams/:id` (papers ordered by `scheduledAt`, with `_count.questions`); S: `GET me/results` (published only).
 
-**question-bank** (A, class-level) — `GET question-bank?subjectId&type&search` (with `_count.paperQuestions`), `POST question-bank`,
-`PATCH question-bank/:id` (subject fixed), `DELETE question-bank/:id` (409 while used on a paper). Validation errors return `fields`.
+**question-bank** (A,T — teachers: subjects they teach, edit / delete own questions only) — `GET question-bank?subjectId&type&difficulty&className&chapterNo&search&isActive`
+(search = question, topic or chapter title; with `subject`, `createdBy`, `_count.paperQuestions/paperItems`; max 5000), `GET question-bank/subjects`
+(`{subjects:[{id,name,code,classNames}], classNames}`), `POST question-bank`, `POST question-bank/bulk` (`{subjectId, rows[≤500]}` → `{created, errors:[{row, message}]}`,
+nothing saved when a row is invalid), `PATCH question-bank/:id` (subject fixed; a type change drops the old type's fields), `POST question-bank/:id/duplicate`,
+`DELETE question-bank/:id` (409 while on a paper). Validation errors return `fields`.
+
+**paper generator** (A,T — teachers: own papers + the paper of their own classes' exam papers) — `GET|POST paper-patterns(?subjectId)`, `PATCH|DELETE
+paper-patterns/:id` (creator or A); `GET question-papers?subjectId&className&status&search` (+ `questionCount`, `itemsMarks`), `POST question-papers`
+(header + layout), `GET|PATCH|DELETE question-papers/:id` (GET = items in order with the full question, `itemsMarks`), `PUT question-papers/:id/items`
+(`{items:[{questionId, marks?}]}` in order, same subject, no duplicates), `POST question-papers/:id/generate` (`{rows, append?}` → `{paper, shortfalls:[{row,
+wanted, found}]}`), `POST exam-papers/:paperId/question-paper` (A, T own course: the exam paper's question paper, created from the exam details the first time).
+
+**conduct** — A,T: `GET conduct-sheet/classes` (current-year sections the user may assess), `GET conduct-sheet?sectionId&period&startDate` (active students +
+their record), `PUT conduct-sheet` (`{sectionId, period, startDate, endDate, assessmentDate, rows:[{studentId, <8 ratings>?, remarks?}]}` → `{saved, removed}`;
+an empty row removes that student's record), `GET conduct-assessments?sectionId&classId&studentId&period&from&to` (periods overlapping the dates),
+`DELETE conduct-assessments/:id`; S: `GET me/conduct`; P: `GET children/:studentId/conduct` (link verified).
 
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,

@@ -28,6 +28,7 @@ import { DiaryModule } from './modules/diary/diary.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { QuestionBankModule } from './modules/question-bank/question-bank.module';
+import { ConductModule } from './modules/conduct/conduct.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { QuestionBankModule } from './modules/question-bank/question-bank.module
     MessagesModule,
     ReportsModule,
     QuestionBankModule,
+    ConductModule,
   ],
 })
 export class AppModule {}

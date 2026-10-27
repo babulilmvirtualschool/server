@@ -83,6 +83,10 @@ model User {
   salaryPaymentsMade   SalaryPayment[]      @relation("SalaryPayer")
   periodAttendanceRecorded PeriodAttendance[] @relation("PeriodAttendanceRecorder")
   periodLeavesReviewed PeriodLeaveRequest[] @relation("PeriodLeaveReviewer")
+  bankQuestionsCreated BankQuestion[]    @relation("BankQuestionCreator")
+  paperPatternsCreated PaperPattern[]    @relation("PaperPatternCreator")
+  questionPapersCreated QuestionPaper[]  @relation("QuestionPaperCreator")
+  conductAssessed      ConductAssessment[] @relation("ConductAssessor")
 
   @@index([role])
   @@index([campus])
@@ -196,6 +200,7 @@ model StudentProfile {
   examResults         ExamResult[]
   invoices            FeeInvoice[]
   feeDiscounts        FeeDiscount[]
+  conductAssessments  ConductAssessment[]
   liveClassAttendance LiveClassAttendance[]
   leaveRequests       StudentLeaveRequest[]
 }
@@ -292,6 +297,7 @@ model Section {
   courses        Course[]
   enrollments    StudentEnrollment[]
   attendance     AttendanceRecord[]
+  conductAssessments ConductAssessment[]
   announcements  Announcement[]
   admissionApplications AdmissionApplication[]
   /// Attendance settings → Shifts mode: which shift's timings apply to this class (null = default timings).
@@ -324,6 +330,8 @@ model Subject {
 
   courses       Course[]
   bankQuestions BankQuestion[]
+  paperPatterns PaperPattern[]
+  questionPapers QuestionPaper[]
 
   @@unique([campus, name])
   @@unique([campus, code])
@@ -821,6 +829,7 @@ model ExamPaper {
   paperFileName  String?
   results      ExamResult[]
   questions    ExamPaperQuestion[]
+  questionPaper QuestionPaper?
 
   @@unique([examId, courseId])
 }
@@ -1537,6 +1546,17 @@ model DiaryEntry {
 enum BankQuestionType {
   MCQ
   FILL_BLANK
+  TRUE_FALSE
+  TICK_CROSS
+  MATCHING
+  SHORT
+  LONG
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
 }
 
 // Reusable question for a subject. MCQ: `options` = [{ text, isCorrect }] with exactly one correct.
@@ -1548,14 +1568,133 @@ model BankQuestion {
   type      BankQuestionType
   text      String
   options   Json?
+  /// FILL_BLANK answer, TRUE_FALSE / TICK_CROSS "TRUE" | "FALSE", SHORT / LONG solution key.
   answer    String?
   marks     Float            @default(1)
+  /// PDF1 11.1 (Day 10): class name (kept as text so the bank outlives academic years), chapter, topic, difficulty, hints.
+  className    String?
+  chapterNo    Int?
+  chapterTitle String?
+  topic        String?
+  difficulty   QuestionDifficulty @default(MEDIUM)
+  explanation  String?
+  /// Sub-parts Q1 -> (a), (b), (c): [{text, marks?, answer?}].
+  parts        Json?
+  /// MATCHING: [{left, right}] in the correct order (Column B is shuffled when printed).
+  pairs        Json?
+  isActive     Boolean  @default(true)
+  createdById  String?
+  createdBy    User?    @relation("BankQuestionCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
   paperQuestions ExamPaperQuestion[]
+  paperItems     QuestionPaperItem[]
 
   @@index([subjectId, type])
+  @@index([subjectId, chapterNo])
+}
+
+/// PDF1 12.1 saved paper pattern blueprint: header defaults + rows {chapterNo?, type, difficulty?, count, marks}.
+model PaperPattern {
+  id          String   @id @default(cuid())
+  name        String
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  className   String?
+  chapters    Int[]
+  rows        Json
+  header      Json?
+  createdById String?
+  createdBy   User?    @relation("PaperPatternCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subjectId])
+}
+
+/// PDF1 12.1–12.3 generated question paper (draft or final); optionally the paper of a date-sheet exam paper.
+model QuestionPaper {
+  id           String   @id @default(cuid())
+  title        String
+  schoolName   String?
+  examName     String?
+  subjectId    String
+  subject      Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  className    String?
+  totalMinutes Int?
+  totalMarks   Float?
+  instructions String?
+  chapters     Int[]
+  /// {numbering: "ALPHA" | "ROMAN", options: "ROW" | "GRID"}
+  layout       Json?
+  status       String   @default("DRAFT") // DRAFT | FINAL
+  examPaperId  String?  @unique
+  examPaper    ExamPaper? @relation(fields: [examPaperId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User?    @relation("QuestionPaperCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items QuestionPaperItem[]
+
+  @@index([subjectId])
+}
+
+model QuestionPaperItem {
+  id         String        @id @default(cuid())
+  paperId    String
+  paper      QuestionPaper @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  questionId String
+  question   BankQuestion  @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  orderIndex Int
+  /// Marks on this paper (defaults to the question's marks).
+  marks      Float?
+
+  @@unique([paperId, questionId])
+  @@index([questionId])
+}
+
+enum ConductPeriod {
+  WEEKLY
+  HALF_MONTHLY
+  MONTHLY
+}
+
+enum ConductRating {
+  EXCELLENT
+  GOOD
+  SATISFACTORY
+  NEEDS_IMPROVEMENT
+}
+
+/// PDF2 Admin 1 Character & Conduct Assessment (Day 10): one row per student per period (weekly / 15-day / monthly).
+model ConductAssessment {
+  id                    String         @id @default(cuid())
+  studentId             String
+  student               StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sectionId             String
+  section               Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  period                ConductPeriod
+  startDate             DateTime       @db.Date
+  endDate               DateTime       @db.Date
+  assessmentDate        DateTime       @db.Date
+  discipline            ConductRating?
+  regularity            ConductRating?
+  punctuality           ConductRating?
+  obedience             ConductRating?
+  followingInstructions ConductRating?
+  homework              ConductRating?
+  learning              ConductRating?
+  overall               ConductRating?
+  remarks               String?
+  assessedById          String?
+  assessedBy            User?          @relation("ConductAssessor", fields: [assessedById], references: [id], onDelete: SetNull)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@unique([studentId, period, startDate])
+  @@index([sectionId, period, startDate])
 }
 
 // A question selected from the bank for an exam paper (the generated paper), in order.
