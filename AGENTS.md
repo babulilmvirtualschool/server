@@ -513,7 +513,9 @@ A: `POST notifications/staff-alert` (`{kind EMERGENCY|SECURITY|NOTICE, audience 
 `cd $HOME/server && git fetch origin main && git reset --hard origin/main && npm install && npx prisma generate && npx prisma migrate deploy &&
 NODE_OPTIONS=--max-old-space-size=512 npm run build && pm2 restart nest-backend --update-env`.
 So: **every migration committed to `main` runs against production automatically.** Make migrations additive /
-backward compatible, and never commit a migration you haven't applied locally. The droplet has little RAM (512 MB heap cap).
+backward compatible, and never commit a migration you haven't applied locally. The droplet has little RAM (512 MB heap cap): since 2026-10-27 `npm run build` is plain `tsc -p tsconfig.build.json` (same JS as `nest build`, which
+needed > 512 MB with its CLI overhead and failed the Day 10 deploy after `prebuild` had already emptied `dist`). tsc itself needs ~450–512 MB today, so the
+margin is small — watch the deploy result after big additions.
 The README's EC2/Nginx/"lms-api" section describes an older plan, not the current pipeline.
 The droplet checkout is reset to `origin/main` on every deploy (a plain `git pull` used to abort because
 `npm install` rewrites `package-lock.json` there) — never hand-edit tracked files on the droplet; untracked `.env` is kept.
