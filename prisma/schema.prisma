@@ -201,6 +201,8 @@ model StudentProfile {
   invoices            FeeInvoice[]
   feeDiscounts        FeeDiscount[]
   conductAssessments  ConductAssessment[]
+  resultEntries       ResultEntry[]
+  resultSummaries     ResultSummary[]
   liveClassAttendance LiveClassAttendance[]
   leaveRequests       StudentLeaveRequest[]
 }
@@ -263,6 +265,8 @@ model AcademicYear {
   courses      Course[]
   feeStructures FeeStructure[]
   exams        Exam[]
+  gradeScales  GradeScale[]
+  resultTerms  ResultTerm[]
 
   @@unique([campus, name])
 }
@@ -298,6 +302,7 @@ model Section {
   enrollments    StudentEnrollment[]
   attendance     AttendanceRecord[]
   conductAssessments ConductAssessment[]
+  resultSummaries ResultSummary[]
   announcements  Announcement[]
   admissionApplications AdmissionApplication[]
   /// Attendance settings → Shifts mode: which shift's timings apply to this class (null = default timings).
@@ -364,6 +369,7 @@ model Course {
   examPapers    ExamPaper[]
   announcements Announcement[]
   timetableSlots TimetableSlot[]
+  resultEntries ResultEntry[]
 
   @@unique([subjectId, sectionId, academicYearId])
   @@index([teacherId])
@@ -1860,4 +1866,123 @@ model LiveClassPollResponse {
 enum ExamPaperMode {
   MANUAL
   ONLINE
+}
+
+// =============================================================
+// RESULTS (Day 11 — PDF1 13.1–13.4, PDF2 Teacher 6 / 11, Student 5–7)
+// =============================================================
+
+/// PDF1 13.1 grading standard: bands [{letter, from, to, points, remarks}] (percent ranges) + passing criteria.
+model GradeScale {
+  id             String        @id @default(cuid())
+  campus         Campus        @default(ONLINE)
+  name           String
+  /// Academic session it is for (empty = any session).
+  academicYearId String?
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  passPercent    Float         @default(33)
+  bands          Json
+  isDefault      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  resultTerms ResultTerm[]
+}
+
+enum ResultTermStatus {
+  DRAFT
+  COMPILED
+  LOCKED
+}
+
+/// PDF1 13.2 a result to compile (e.g. "First Term 2026"): assessment categories with weightage,
+/// [{key, name, source: EXAM | QUIZ | ASSIGNMENT | HOMEWORK | MANUAL, weight, examId?}], attendance inclusion.
+model ResultTerm {
+  id                String           @id @default(cuid())
+  name              String
+  academicYearId    String
+  academicYear      AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  gradeScaleId      String?
+  gradeScale        GradeScale?      @relation(fields: [gradeScaleId], references: [id], onDelete: SetNull)
+  categories        Json
+  /// Coursework (quizzes, assignments, homework) and attendance between these dates (empty = the whole session).
+  fromDate          DateTime?        @db.Date
+  toDate            DateTime?        @db.Date
+  includeAttendance Boolean          @default(false)
+  attendanceWeight  Float            @default(0)
+  status            ResultTermStatus @default(DRAFT)
+  compiledAt        DateTime?
+  lockedAt          DateTime?
+  publishedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  entries   ResultEntry[]
+  summaries ResultSummary[]
+}
+
+/// One subject of one student in a result: marks per category {key: {obtained, max, manual?}}, grace, subject %, grade, pass/fail.
+model ResultEntry {
+  id         String         @id @default(cuid())
+  termId     String
+  term       ResultTerm     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  marks      Json
+  grace      Float          @default(0)
+  percent    Float?
+  grade      String?
+  gradePoint Float?
+  passed     Boolean?
+  remarks    String?
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([termId, courseId, studentId])
+  @@index([courseId])
+}
+
+/// One student in a compiled result: overall %, grade, GPA, pass/fail, positions, attendance, report-card remarks and co-curricular grades.
+model ResultSummary {
+  id                String         @id @default(cuid())
+  termId            String
+  term              ResultTerm     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sectionId         String
+  section           Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subjects          Int            @default(0)
+  percent           Float?
+  grade             String?
+  gradePoint        Float?
+  passed            Boolean?
+  sectionPosition   Int?
+  classPosition     Int?
+  schoolPosition    Int?
+  attendanceDays    Int?
+  attendancePresent Int?
+  attendanceAbsent  Int?
+  attendancePercent Float?
+  teacherRemarks    String?
+  principalRemarks  String?
+  /// [{activity, grade}]
+  coCurricular      Json?
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([termId, studentId])
+  @@index([sectionId])
+}
+
+/// PDF1 13.3 report card: template, school logo, principal's signature (one per school).
+model ReportCardSettings {
+  id            String   @id @default(cuid())
+  campus        Campus   @unique @default(ONLINE)
+  template      String   @default("STANDARD") // STANDARD | MODERN | DETAILED
+  schoolName    String?
+  principalName String?
+  logoKey       String?
+  signatureKey  String?
+  footerNote    String?
+  updatedAt     DateTime @updatedAt
 }

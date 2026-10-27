@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (29) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 10 `20261027060000_question_bank_paper_generator_conduct`.
+- Migrations (30) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 11 `20261028060000_results_report_cards`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -244,6 +244,24 @@ Patterns to copy:
   ConductPeriod WEEKLY | HALF_MONTHLY | MONTHLY, startDate / endDate / assessmentDate `@db.Date`, discipline, regularity, punctuality, obedience,
   followingInstructions, homework, learning, overall = ConductRating EXCELLENT | GOOD | SATISFACTORY | NEEDS_IMPROVEMENT (each optional), remarks,
   assessedById; unique student + period + startDate). Teachers rate classes they teach a subject in or are class teacher of; students / parents read only.
+- Day 11 (2026-10-27, migration `20261028060000_results_report_cards`, additive) — **results** (`modules/results`, PDF1 13.1–13.4): `GradeScale` (DIRECT campus: name,
+  academicYearId? (session), passPercent = passing criteria, `bands` Json [{letter, from, to, points?, remarks?}] highest first, no overlaps, isDefault).
+  `ResultTerm` (VIA year: name, gradeScaleId (SetNull), `categories` Json [{key, name, source EXAM | QUIZ | ASSIGNMENT | HOMEWORK | MANUAL, weight, examId?}],
+  fromDate / toDate (`@db.Date`, coursework + attendance window; empty = the session), includeAttendance + attendanceWeight (% of the overall), status
+  DRAFT → COMPILED → LOCKED, compiledAt / lockedAt / publishedAt). `ResultEntry` (VIA term: term + course + student unique, `marks` Json {key: {obtained, max,
+  manual?}}, grace, percent, grade, gradePoint, passed, remarks) and `ResultSummary` (VIA term: term + student unique, section, subjects, percent, grade, gradePoint
+  (average of subject GPs), passed, section / class / school positions (1, 1, 3 ranking), attendanceDays / Present / Absent / Percent (whole-day records in the window),
+  teacherRemarks, principalRemarks, coCurricular Json [{activity, grade}]). `ReportCardSettings` (DIRECT, campus `@unique`: template STANDARD | MODERN | DETAILED,
+  schoolName, principalName, logoKey / signatureKey (own AVATAR image uploads), footerNote). **Automatic marks** (`ResultsService.autoCells`): EXAM = the exam's paper
+  of that course (ExamResult, else the online test's best score scaled to max marks), QUIZ = best scores of the course's published quizzes that ended in the window
+  ÷ their total, ASSIGNMENT = graded marks of published assignments due in the window ÷ max (not handed in = 0), HOMEWORK = diary stars out of 5 per homework given
+  (an entry someone handed in; checked without stars = 5). Cells typed by hand are flagged `manual` and kept when filling again. **Subject %** = Σ weight × obtained
+  / max ÷ Σ weight of the categories that have marks in that subject (a missing mark counts 0) + grace (max 100); **overall** = mean of subject % (× (1 − attendance
+  weight) + attendance % × weight when included); passed = every subject ≥ pass % and overall ≥ pass %. Saving marks recomputes that subject and every summary; compile
+  pulls the automatic marks for all subjects; recalculate only recomputes. LOCKED freezes marks, remarks and the scale's grades; publish needs LOCKED; reopen
+  unpublishes. **Leaderboard** (`leaderboard.service.ts`, client 25 Oct): current academic year — result % of the latest published result 40, quizzes (best % per
+  graded quiz) 20, homework (diary homework handed in ÷ given, averaged with assignment marks %) 20, stars (assignment + diary stars ÷ 5) 20; missing parts are left
+  out and the rest re-weighted.
 - `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
   parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
@@ -401,6 +419,18 @@ their record), `PUT conduct-sheet` (`{sectionId, period, startDate, endDate, ass
 an empty row removes that student's record), `GET conduct-assessments?sectionId&classId&studentId&period&from&to` (periods overlapping the dates),
 `DELETE conduct-assessments/:id`; S: `GET me/conduct`; P: `GET children/:studentId/conduct` (link verified).
 
+**results** (Day 11) — A,T: `GET grade-scales?academicYearId`; A: `POST grade-scales`, `PATCH|DELETE grade-scales/:id` (bands / pass % refused (409) while a locked
+result uses the scale; delete 409 while any result uses it). A,T: `GET result-terms?academicYearId`, `GET result-terms/:id`, `POST result-terms/:id/categories`
+(`{name, weight}` → a MANUAL category, while not locked); A: `POST result-terms`, `PATCH|DELETE result-terms/:id` (not while locked). Marks (A, T own course):
+`GET result-terms/:id/sheet?courseId`, `POST result-terms/:id/sheet/auto` (`{courseId}`, fill automatic categories), `PUT result-terms/:id/sheet`
+(`{courseId, rows:[{studentId, marks, grace?, remarks?}]}`; obtained > max → 400; locked → 409). A: `POST result-terms/:id/compile|recalculate|lock|reopen`,
+`POST result-terms/:id/publish` (`{published}`; needs LOCKED). A,T: `GET result-terms/:id/audit` (per class subject: students, entries, complete, categories with marks,
+last change), `GET result-terms/:id/results?sectionId&classId` (T: sections they teach; summary + entries per student with roll, gender, father name / phones, class
+label), `PATCH result-summaries/:id` (`{teacherRemarks?, principalRemarks? (A only), coCurricular?}`; not while locked). `GET report-card-settings` A,T, `PUT` A.
+S: `GET me/result-cards` (published results: `{cards:[{term, student, sectionSize, classSize}], settings}`), `GET me/grades` (`{papers, quizzes (graded, closed),
+assignments, homework (checked), assessments (MANUAL categories of published results)}`); P: `GET children/:studentId/result-cards|grades`. A,T,S: `GET leaderboard?sectionId`
+(`{weights, resultTerm, sectionId, sections, rows (ranked class), school (top 10), me}`; S = own class, T = classes they teach).
+
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,
 `GET attendance/reports?courseId&date`, `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
@@ -513,9 +543,11 @@ A: `POST notifications/staff-alert` (`{kind EMERGENCY|SECURITY|NOTICE, audience 
 `cd $HOME/server && git fetch origin main && git reset --hard origin/main && npm install && npx prisma generate && npx prisma migrate deploy &&
 NODE_OPTIONS=--max-old-space-size=512 npm run build && pm2 restart nest-backend --update-env`.
 So: **every migration committed to `main` runs against production automatically.** Make migrations additive /
-backward compatible, and never commit a migration you haven't applied locally. The droplet has little RAM (512 MB heap cap): since 2026-10-27 `npm run build` is plain `tsc -p tsconfig.build.json` (same JS as `nest build`, which
-needed > 512 MB with its CLI overhead and failed the Day 10 deploy after `prebuild` had already emptied `dist`). tsc itself needs ~450–512 MB today, so the
-margin is small — watch the deploy result after big additions.
+backward compatible, and never commit a migration you haven't applied locally. The droplet has little RAM (512 MB heap cap): since 2026-10-27 (Day 11) `npm run build` is `node scripts/build.cjs` — TypeScript's `transpileModule` file by file (no
+type-checking, a few dozen MB), same options as tsconfig.build.json. `nest build` (> 512 MB) failed the Day 10 deploy, and a full `tsc` needed > 512 MB with
+the Day 11 models. Type-check locally before committing: `npm run typecheck` (full tsc, no output; give it `NODE_OPTIONS=--max-old-space-size=1024`). The only
+difference from tsc's JavaScript is the runtime guard around decorator type metadata (`typeof X !== "undefined"`) and enum-typed fields reported as Object;
+every test suite passes on this build.
 The README's EC2/Nginx/"lms-api" section describes an older plan, not the current pipeline.
 The droplet checkout is reset to `origin/main` on every deploy (a plain `git pull` used to abort because
 `npm install` rewrites `package-lock.json` there) — never hand-edit tracked files on the droplet; untracked `.env` is kept.
@@ -552,7 +584,7 @@ When you change endpoints, update §7 here (and fix the matching role doc if you
 
 ## 11. Before you finish a backend change
 
-- `npm run build` passes (type errors surface here; there are no tests).
+- `npm run typecheck` passes (type errors surface here — `npm run build` no longer type-checks) and `npm run build` compiles; there are no tests.
 - Schema changed → migration folder committed, `prisma generate` run, seed still idempotent.
 - New/changed route visible and correct in Swagger; role + ownership checks in the service.
 - If it's a core flow, extend `scripts/check-local.mjs` (it cleans up after itself — keep that property).
