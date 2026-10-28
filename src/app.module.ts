@@ -30,6 +30,11 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { QuestionBankModule } from './modules/question-bank/question-bank.module';
 import { ConductModule } from './modules/conduct/conduct.module';
 import { ResultsModule } from './modules/results/results.module';
+import { CommunicationModule } from './modules/communication/communication.module';
+import { CertificatesModule } from './modules/certificates/certificates.module';
+import { CoordinatorModule } from './modules/coordinator/coordinator.module';
+import { StockModule } from './modules/stock/stock.module';
+import { WebsiteModule } from './modules/website/website.module';
 
 @Module({
   imports: [
@@ -77,6 +82,11 @@ import { ResultsModule } from './modules/results/results.module';
     QuestionBankModule,
     ConductModule,
     ResultsModule,
+    CommunicationModule,
+    CertificatesModule,
+    CoordinatorModule,
+    StockModule,
+    WebsiteModule,
   ],
 })
 export class AppModule {}

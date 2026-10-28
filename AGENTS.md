@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (30) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 11 `20261028060000_results_report_cards`.
+- Migrations (31) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 12–13 `20261029060000_communication_certificates_coordinator_stock_website`.
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -262,6 +262,30 @@ Patterns to copy:
   unpublishes. **Leaderboard** (`leaderboard.service.ts`, client 25 Oct): current academic year — result % of the latest published result 40, quizzes (best % per
   graded quiz) 20, homework (diary homework handed in ÷ given, averaged with assignment marks %) 20, stars (assignment + diary stars ÷ 5) 20; missing parts are left
   out and the rest re-weighted.
+- Day 12–13 (2026-10-28, migration `20261029060000_communication_certificates_coordinator_stock_website`, additive, 13 new tables) —
+  **communication** (`modules/communication`, PDF1 7.1 / 7.2): `ChatMessage` (VIA sender: sender, recipient (User ids), body, readAt) — a student chats with the
+  teachers of their current classes (subject teachers + class teacher), a teacher with the students of the classes they teach or are class teacher of; the admin
+  reads every conversation. `Complaint` (DIRECT campus: author (parent or student User), student (the child / themself), optional teacher of that student, kind
+  COMPLAINT | SUGGESTION, subject, body, status OPEN | IN_PROGRESS | RESOLVED | CLOSED, reply / repliedBy / repliedAt). `TeacherRating` (VIA teacher: parent User +
+  teacher unique, stars 1–5, comment) — parents rate their children's teachers, only admins see them. **certificates** (`modules/certificates`, PDF2 Admin 2):
+  `Certificate` (DIRECT: certificateNo `ON-CRT-<year>-0001` / `PH-…` (unique, serial per school), type CHARACTER | BONAFIDE | TRANSFER | MERIT | APPRECIATION |
+  ATTENDANCE | MIGRATION | EXPERIENCE (teachers / staff) | FEE_CLEARANCE | ACHIEVEMENT | PARTICIPATION (students), user (holder), issueDate, `details` Json {field: text}
+  (keys letters/digits, ≤ 30, ≤ 1000 chars), remarks, issuedBy). The leaving certificate stays on `StudentDischarge`. Fee clearance is refused (409) while the
+  student owes fees. The PDF is made in the browser from the holder's facts + details. ID cards need no table (`GET id-cards`, `me/id-card`).
+  **coordinator** (`modules/coordinator`, PDF1 8, admin portal): `ClassVisit` (VIA teacher: date, section, period text, teacher (role TEACHER), subject?, observation,
+  punctuality 0–100 (% or stars × 20), lessonDelivery / classControl / studentEngagement 1–5, syllabusProgress 0–100, recommendations; overall = mean of punctuality
+  and the three stars as %), `CoordinatorCheck` (VIA section: kind DISCIPLINE | CLASSROOM, date, items Json [{label, rating GOOD | AVERAGE | POOR, note?}], remarks;
+  score = GOOD 2 / AVERAGE 1 / POOR 0 as %), `HeadTeacherReport` (DIRECT, campus + weekStart (Monday) unique: entries Json [{date, note}], summary,
+  achievements, concerns, nextWeekPlan). **stock** (`modules/stock`, PDF2 Admin 6): `StockCategory` (DIRECT, name unique per school), `StockItem` (VIA category:
+  name, code, unit, price, quantity, reorderLevel (low stock when quantity ≤ it), isActive), `StockOrder` (DIRECT: orderNo `ON-SO-000001`, student, placedBy
+  (parent or admin), status PENDING → APPROVED → DELIVERED (stock out as SALE movements; cash on delivery becomes paid) | CANCELLED (a delivered order's
+  stock comes back as RETURN; refused while it is on a challan), paymentMode ADVANCE | CASH_ON_DELIVERY | WITH_FEE, paid / paidAt, total, note, adminNote,
+  feeInvoiceId), `StockOrderItem` (VIA order: item (Restrict), name / unitPrice / quantity / amount snapshot), `StockTransaction` (VIA item → category: type
+  PURCHASE | SALE | RETURN | ADJUSTMENT, signed quantity, unitPrice, amount, date, note, orderId). **With fee** (client 25 Oct): "Add to fee challan" appends a
+  challan line `{feeTypeId: "", name: "Stock items", net: total, stockOrderId, details: "ON-SO-000001: Shirt x 2, …"}` to the student's latest unpaid challan
+  (total raised; Regenerate keeps stock lines; deleting the challan frees the order); such orders count as paid when the challan is PAID. **website**
+  (`modules/website`, PDF2 Admin 5): `WebsiteSettings` (one row id "main", not per school — the website is shared): popupEnabled, popupImageKey, popupLink,
+  ctaNumber, slides Json [{imageKey, imageName, tagline}], slidingText Json string[]; images are the admin's own finalized OTHER uploads (PNG / JPG / WebP / GIF).
 - `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
   parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
@@ -430,6 +454,39 @@ label), `PATCH result-summaries/:id` (`{teacherRemarks?, principalRemarks? (A on
 S: `GET me/result-cards` (published results: `{cards:[{term, student, sectionSize, classSize}], settings}`), `GET me/grades` (`{papers, quizzes (graded, closed),
 assignments, homework (checked), assessments (MANUAL categories of published results)}`); P: `GET children/:studentId/result-cards|grades`. A,T,S: `GET leaderboard?sectionId`
 (`{weights, resultTerm, sectionId, sections, rows (ranked class), school (top 10), me}`; S = own class, T = classes they teach).
+
+**communication** (Day 12) — T,S: `GET chat/inbox` (contacts with `unread` and `lastMessage`, newest first), `GET chat/unread`, `GET chat/with/:userId` (contact + messages
+(max 500); marks theirs read; 403 if not a contact), `POST chat/messages` (`{recipientId, body ≤ 2000}`); A: `GET chat/conversations?search` (teacher ↔ student pairs with
+count + last message), `GET chat/conversation?a&b` (User ids). S,P: `GET complaints/options` (the student / each child with their teachers), `POST complaints`
+(`{kind?, studentId (parents), teacherId?, subject 3–200, body 3–5000}`; 400 `fields` for a child / teacher that doesn't fit), `GET me/complaints`; A: `GET complaints?status&kind&search`
+(`{rows, counts {ALL, OPEN, IN_PROGRESS, RESOLVED, CLOSED}}`), `PATCH complaints/:id` (`{status?, reply?}`). P: `GET teacher-ratings/mine` (children with teachers + my stars),
+`PUT teacher-ratings` (`{teacherId, stars 1–5, comment?}`, upsert, 403 for other teachers); A: `GET teacher-ratings` (per teacher average, count, distribution, ratings).
+
+**certificates** (Day 12) — A: `GET certificates?type&userId&search` (`{rows, settings}` — settings = report-card school name / principal / logo / signature),
+`GET certificates/prefill?type&userId` (`{holder, details, outstanding}`: father, class, roll, session, DOB, admission date, designation, joining date, subjects;
+attendance days / %, latest published result position / %, last paid month, discharge date / reason / conduct), `POST certificates` (`{type, userId, issueDate, details, remarks?}`;
+400 wrong holder kind, 409 fee clearance with dues), `PATCH|DELETE certificates/:id`; T: `GET certificates/my-students`; S,T,STAFF: `GET me/issued-certificates`;
+P: `GET children/:studentId/certificates` (link verified). A: `GET id-cards?kind=STUDENT&sectionId|userIds` / `kind=STAFF&userIds?` (`{cards, settings}`); S,T,STAFF: `GET me/id-card`.
+
+**coordinator** (Day 13, all A) — `GET coordinator/dashboard` (system: students, teachers, classes, today's student / staff attendance, pending leaves, open complaints,
+pending admissions; this month's visits (averages, teachers not visited), checks (counts, average score, Poor items), this week's head-teacher report written?, latest 5 visits),
+`GET coordinator/teacher-performance?from&to&teacherId` (per teacher: visits + averages, latest syllabus %, approved attendance counts / %, parents' star average, classes,
+visit list), `GET|POST class-visits` (`?from&to&teacherId&sectionId`), `PATCH|DELETE class-visits/:id`, `GET|POST coordinator-checks` (`?kind&from&to&sectionId`; `items` 1–40),
+`PATCH|DELETE coordinator-checks/:id`, `GET head-teacher-reports?from&to`, `GET head-teacher-reports/week?weekStart` (any date of the week → that week, empty Monday–Saturday
+lines when not written, `saved`), `PUT head-teacher-reports` (`{weekStart, entries[{date in the week, note}], summary?, achievements?, concerns?, nextWeekPlan?}`), `DELETE head-teacher-reports/:id`.
+
+**stock** (Day 13) — A: `GET|POST stock-categories`, `PATCH|DELETE stock-categories/:id` (409 with items); `GET stock-items?categoryId&search&isActive` (+ value, low),
+`POST stock-items` (`{categoryId, name, code?, unit?, price, openingQuantity?, reorderLevel?, description?}` — opening stock = ADJUSTMENT movement), `PATCH stock-items/:id`,
+`DELETE stock-items/:id` (409 when on orders); `GET stock-transactions?itemId&categoryId&type&from&to`, `POST stock-transactions` (`{itemId, type PURCHASE | RETURN | ADJUSTMENT,
+quantity (+ in; adjustment ±), unitPrice?, date, note?}`; 409 below zero), `DELETE stock-transactions/:id` (hand-entered only); `GET stock-orders?status&search&from&to`,
+`POST stock-orders` A,P (`{studentId, items[{itemId, quantity}], paymentMode, note?}`; parents: own children, starts PENDING; office orders start APPROVED; 409 not enough stock),
+`PATCH stock-orders/:id/status` (`{status APPROVED | DELIVERED | CANCELLED, adminNote?}`), `PATCH stock-orders/:id/paid` (`{paid}`; not for WITH_FEE),
+`POST stock-orders/:id/add-to-fee` (WITH_FEE; 409 without an unpaid challan or twice), `GET stock-report?from&to&categoryId` (per item opening, purchased, sold, returned,
+adjusted, closing, value, sales, purchase cost + totals). P: `GET stock-shop` (active items with `available`, children), `GET me/stock-orders`, `POST me/stock-orders/:id/cancel` (PENDING only).
+
+**website** (Day 13) — public: `GET public/website` (`{popup {show, imageUrl (short-lived link or null = the built-in banner), link}, ctaNumber, slides[{imageUrl, tagline}],
+slidingText}`; before the first save show = true); A: `GET|PUT website-settings` (`{popupEnabled, popupImage {key,name} | null, popupLink (/… or https://…), ctaNumber,
+slides[{image {key,name}, tagline?}] ≤ 15, slidingText[] ≤ 20}`).
 
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,

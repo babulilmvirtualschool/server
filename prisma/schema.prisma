@@ -87,6 +87,18 @@ model User {
   paperPatternsCreated PaperPattern[]    @relation("PaperPatternCreator")
   questionPapersCreated QuestionPaper[]  @relation("QuestionPaperCreator")
   conductAssessed      ConductAssessment[] @relation("ConductAssessor")
+  chatSent             ChatMessage[]       @relation("ChatSender")
+  chatReceived         ChatMessage[]       @relation("ChatRecipient")
+  complaints           Complaint[]         @relation("ComplaintAuthor")
+  complaintsReplied    Complaint[]         @relation("ComplaintReplier")
+  teacherRatingsGiven  TeacherRating[]     @relation("TeacherRatingParent")
+  certificates         Certificate[]       @relation("CertificateHolder")
+  certificatesIssued   Certificate[]       @relation("CertificateIssuer")
+  classVisitsMade      ClassVisit[]        @relation("ClassVisitBy")
+  coordinatorChecks    CoordinatorCheck[]  @relation("CoordinatorCheckBy")
+  headTeacherReports   HeadTeacherReport[] @relation("HeadTeacherReportBy")
+  stockOrdersPlaced    StockOrder[]        @relation("StockOrderPlacedBy")
+  stockTransactions    StockTransaction[]  @relation("StockTransactionBy")
 
   @@index([role])
   @@index([campus])
@@ -161,6 +173,9 @@ model TeacherProfile {
   periodSubstitutions PeriodAttendance[] @relation("PeriodSubstitute")
   periodLeaves      PeriodLeaveRequest[] @relation("PeriodLeaveTeacher")
   periodLeaveSubstitutions PeriodLeaveRequest[] @relation("PeriodLeaveSubstitute")
+  complaints       Complaint[]
+  ratings          TeacherRating[]
+  classVisits      ClassVisit[]
 }
 
 model StudentProfile {
@@ -205,6 +220,8 @@ model StudentProfile {
   resultSummaries     ResultSummary[]
   liveClassAttendance LiveClassAttendance[]
   leaveRequests       StudentLeaveRequest[]
+  complaints          Complaint[]
+  stockOrders         StockOrder[]
 }
 
 model ParentProfile {
@@ -303,6 +320,8 @@ model Section {
   attendance     AttendanceRecord[]
   conductAssessments ConductAssessment[]
   resultSummaries ResultSummary[]
+  classVisits    ClassVisit[]
+  coordinatorChecks CoordinatorCheck[]
   announcements  Announcement[]
   admissionApplications AdmissionApplication[]
   /// Attendance settings → Shifts mode: which shift's timings apply to this class (null = default timings).
@@ -337,6 +356,7 @@ model Subject {
   bankQuestions BankQuestion[]
   paperPatterns PaperPattern[]
   questionPapers QuestionPaper[]
+  classVisits   ClassVisit[]
 
   @@unique([campus, name])
   @@unique([campus, code])
@@ -1984,5 +2004,319 @@ model ReportCardSettings {
   logoKey       String?
   signatureKey  String?
   footerNote    String?
+  updatedAt     DateTime @updatedAt
+}
+
+// =============================================================
+// DAY 12 — COMMUNICATION (PDF1 7.1 / 7.2), CERTIFICATES (PDF2 Admin 2)
+// =============================================================
+
+/// PDF1 7.1 software chat: teacher <-> student conversation; the admin can read every conversation.
+model ChatMessage {
+  id          String    @id @default(cuid())
+  senderId    String
+  sender      User      @relation("ChatSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User      @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  body        String
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([senderId, recipientId, createdAt])
+  @@index([recipientId, readAt])
+}
+
+enum ComplaintKind {
+  COMPLAINT
+  SUGGESTION
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+/// PDF1 7.2 parent & student complaints / suggestions — sent to the admin, optionally naming a teacher.
+model Complaint {
+  id          String          @id @default(cuid())
+  campus      Campus          @default(ONLINE)
+  authorId    String
+  author      User            @relation("ComplaintAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  /// The child it is about (parents) / the student who wrote it.
+  studentId   String?
+  student     StudentProfile? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  teacherId   String?
+  teacher     TeacherProfile? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  kind        ComplaintKind   @default(COMPLAINT)
+  subject     String
+  body        String
+  status      ComplaintStatus @default(OPEN)
+  reply       String?
+  repliedById String?
+  repliedBy   User?           @relation("ComplaintReplier", fields: [repliedById], references: [id], onDelete: SetNull)
+  repliedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([campus, status])
+  @@index([authorId])
+}
+
+/// Parents give star marks (1-5) to their children's teachers; only the admin sees them.
+model TeacherRating {
+  id        String         @id @default(cuid())
+  parentId  String
+  parent    User           @relation("TeacherRatingParent", fields: [parentId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  stars     Int
+  comment   String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([parentId, teacherId])
+  @@index([teacherId])
+}
+
+enum CertificateType {
+  CHARACTER
+  BONAFIDE
+  TRANSFER
+  MERIT
+  APPRECIATION
+  ATTENDANCE
+  MIGRATION
+  EXPERIENCE
+  FEE_CLEARANCE
+  ACHIEVEMENT
+  PARTICIPATION
+}
+
+/// PDF2 Admin 2 issued certificates (the leaving certificate stays on StudentDischarge). Students / parents / staff download their own.
+model Certificate {
+  id            String          @id @default(cuid())
+  campus        Campus          @default(ONLINE)
+  /// ON-CRT-2026-0001 / PH-CRT-2026-0001
+  certificateNo String          @unique
+  type          CertificateType
+  /// The student's or staff member's user account.
+  userId        String
+  user          User            @relation("CertificateHolder", fields: [userId], references: [id], onDelete: Cascade)
+  issueDate     DateTime        @db.Date
+  /// Type-specific fields printed on the certificate (class, session, position, event, dates, conduct, ...).
+  details       Json
+  remarks       String?
+  issuedById    String?
+  issuedBy      User?           @relation("CertificateIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime        @default(now())
+
+  @@index([campus, type])
+  @@index([userId])
+}
+
+// =============================================================
+// DAY 13 — COORDINATOR (PDF1 8), STOCK (PDF2 Admin 6), WEBSITE (PDF2 Admin 5)
+// =============================================================
+
+/// PDF1 8.2 class visit by the coordinator.
+model ClassVisit {
+  id                String         @id @default(cuid())
+  date              DateTime       @db.Date
+  sectionId         String
+  section           Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  period            String?
+  teacherId         String
+  teacher           TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subjectId         String?
+  subject           Subject?       @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  observation       String?
+  /// 0-100 (entered as % or as stars x 20)
+  punctuality       Int
+  /// 1-5 stars
+  lessonDelivery    Int
+  classControl      Int
+  studentEngagement Int
+  /// 0-100 %
+  syllabusProgress  Int
+  recommendations   String?
+  createdById       String?
+  createdBy         User?          @relation("ClassVisitBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([date])
+  @@index([teacherId])
+}
+
+enum CoordinatorCheckKind {
+  DISCIPLINE
+  CLASSROOM
+}
+
+/// PDF1 8.3 discipline check / classroom check of a class.
+model CoordinatorCheck {
+  id          String               @id @default(cuid())
+  kind        CoordinatorCheckKind
+  date        DateTime             @db.Date
+  sectionId   String
+  section     Section              @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  /// [{label, rating: GOOD | AVERAGE | POOR, note?}]
+  items       Json
+  remarks     String?
+  createdById String?
+  createdBy   User?                @relation("CoordinatorCheckBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([kind, date])
+}
+
+/// PDF1 8.3 head teacher weekly diary / report (one per school per week).
+model HeadTeacherReport {
+  id           String   @id @default(cuid())
+  campus       Campus   @default(ONLINE)
+  /// Monday of the week
+  weekStart    DateTime @db.Date
+  /// [{date, note}] one diary note per school day
+  entries      Json
+  summary      String?
+  achievements String?
+  concerns     String?
+  nextWeekPlan String?
+  createdById  String?
+  createdBy    User?    @relation("HeadTeacherReportBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([campus, weekStart])
+}
+
+model StockCategory {
+  id          String      @id @default(cuid())
+  campus      Campus      @default(ONLINE)
+  name        String
+  description String?
+  createdAt   DateTime    @default(now())
+
+  items StockItem[]
+
+  @@unique([campus, name])
+}
+
+model StockItem {
+  id           String        @id @default(cuid())
+  categoryId   String
+  category     StockCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name         String
+  code         String?
+  unit         String?
+  price        Float
+  quantity     Int           @default(0)
+  reorderLevel Int           @default(0)
+  description  String?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  orderItems   StockOrderItem[]
+  transactions StockTransaction[]
+
+  @@index([categoryId])
+}
+
+enum StockOrderStatus {
+  PENDING
+  APPROVED
+  DELIVERED
+  CANCELLED
+}
+
+enum StockPaymentMode {
+  ADVANCE
+  CASH_ON_DELIVERY
+  WITH_FEE
+}
+
+/// Parent orders (parents' portal) and office sales; paid separately or added to the fee challan as its own line.
+model StockOrder {
+  id           String           @id @default(cuid())
+  campus       Campus           @default(ONLINE)
+  /// ON-SO-000001
+  orderNo      String           @unique
+  studentId    String
+  student      StudentProfile   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  placedById   String?
+  placedBy     User?            @relation("StockOrderPlacedBy", fields: [placedById], references: [id], onDelete: SetNull)
+  status       StockOrderStatus @default(PENDING)
+  paymentMode  StockPaymentMode @default(CASH_ON_DELIVERY)
+  paid         Boolean          @default(false)
+  paidAt       DateTime?
+  total        Float
+  note         String?
+  adminNote    String?
+  /// Challan the amount was added to (paymentMode WITH_FEE).
+  feeInvoiceId String?
+  deliveredAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  items StockOrderItem[]
+
+  @@index([campus, status])
+  @@index([studentId])
+}
+
+model StockOrderItem {
+  id        String     @id @default(cuid())
+  orderId   String
+  order     StockOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      StockItem  @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  name      String
+  unitPrice Float
+  quantity  Int
+  amount    Float
+}
+
+enum StockTransactionType {
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+}
+
+/// Stock movements: purchases in, sales (delivered orders) out, returns, adjustments (+/-).
+model StockTransaction {
+  id          String               @id @default(cuid())
+  itemId      String
+  item        StockItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type        StockTransactionType
+  /// Signed change of the quantity (+ in, - out).
+  quantity    Int
+  unitPrice   Float?
+  amount      Float?
+  date        DateTime             @db.Date
+  note        String?
+  orderId     String?
+  createdById String?
+  createdBy   User?                @relation("StockTransactionBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime             @default(now())
+
+  @@index([itemId, date])
+}
+
+/// PDF2 Admin 5 website management (one row, id "main"; the website is shared by both schools).
+model WebsiteSettings {
+  id            String   @id @default("main")
+  popupEnabled  Boolean  @default(false)
+  popupImageKey String?
+  popupLink     String?
+  ctaNumber     String?
+  /// [{imageKey, tagline}]
+  slides        Json?
+  /// ["ADMISSIONS OPEN 2026-27", ...]
+  slidingText   Json?
   updatedAt     DateTime @updatedAt
 }

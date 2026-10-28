@@ -59,6 +59,9 @@ export type ChallanLine = {
   discountIds: string[];
   siblingDiscount: number;
   net: number;
+  /** Stock order added to this challan (Stock management): feeTypeId is "", details lists the items. */
+  stockOrderId?: string;
+  details?: string;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -790,21 +793,23 @@ export class FinanceService {
     if (!inv) throw new NotFoundException('Challan not found');
     if (inv._count.payments) throw new ConflictException('This challan has payments, so it can no longer be regenerated.');
     const oldLines = (inv.lineItems ?? []) as unknown as ChallanLine[];
-    const keepTypes = oldLines.map((l) => l.feeTypeId);
+    const stockLines = oldLines.filter((l) => l.stockOrderId);
+    const keepTypes = oldLines.filter((l) => !l.stockOrderId).map((l) => l.feeTypeId);
     await this.prisma.$transaction(async (tx) => this.markDiscountsUsed(tx, oldLines, inv.period, true));
     const calc = await this.calculate(inv.studentId, inv.period, keepTypes.length ? keepTypes : null);
+    const total = round2(calc.total + stockLines.reduce((n, l) => n + l.net, 0));
     await this.prisma.$transaction(async (tx) => {
       await tx.feeInvoice.update({
         where: { id },
         data: {
-          totalAmount: calc.total,
+          totalAmount: total,
           discountTotal: calc.discountTotal,
           prevBalance: calc.prevBalance,
-          lineItems: calc.lines as unknown as Prisma.InputJsonValue,
+          lineItems: [...calc.lines, ...stockLines] as unknown as Prisma.InputJsonValue,
           sectionId: calc.sectionId,
           classLabel: calc.classLabel,
           lateFee: 0,
-          status: calc.total > 0 ? InvoiceStatus.PENDING : InvoiceStatus.PAID,
+          status: total > 0 ? InvoiceStatus.PENDING : InvoiceStatus.PAID,
         },
       });
       await this.markDiscountsUsed(tx, calc.lines, inv.period);
@@ -829,6 +834,7 @@ export class FinanceService {
     if (inv._count.payments) throw new ConflictException('This challan has payments, so it can\'t be deleted.');
     await this.prisma.$transaction(async (tx) => {
       await this.markDiscountsUsed(tx, (inv.lineItems ?? []) as unknown as ChallanLine[], inv.period, true);
+      await tx.stockOrder.updateMany({ where: { feeInvoiceId: id }, data: { feeInvoiceId: null } });
       await tx.feeInvoice.delete({ where: { id } });
     });
     return { success: true as const };

@@ -27,6 +27,11 @@ const DIRECT = new Set([
   'CashEntry',
   'GradeScale',
   'ReportCardSettings',
+  'Complaint',
+  'Certificate',
+  'HeadTeacherReport',
+  'StockCategory',
+  'StockOrder',
 ]);
 
 type Scope = (campus: Campus, userId?: string) => Record<string, unknown>;
@@ -101,6 +106,13 @@ const VIA: Record<string, Scope> = {
   PeriodLeaveRequest: teacher,
   FeeType: (c) => ({ class: year(c) }),
   FeeDiscount: student,
+  ChatMessage: (c, u) => ({ sender: userScope(c, u) }),
+  TeacherRating: teacher,
+  ClassVisit: teacher,
+  CoordinatorCheck: (c) => ({ section: { class: year(c) } }),
+  StockItem: (c) => ({ category: { campus: c } }),
+  StockOrderItem: (c) => ({ order: { campus: c } }),
+  StockTransaction: (c) => ({ item: { category: { campus: c } } }),
 };
 
 /**
