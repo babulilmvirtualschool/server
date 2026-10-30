@@ -121,7 +121,7 @@ export class AttendanceService {
   }
 
   async listForSectionDate(sectionId: string, date: string) {
-    const d = new Date(date);
+    const d = this.requiredDate(date);
     d.setHours(0, 0, 0, 0);
     return this.prisma.attendanceRecord.findMany({
       where: { sectionId, date: d, courseId: null },
@@ -132,8 +132,15 @@ export class AttendanceService {
     });
   }
 
+  /** `?date=YYYY-MM-DD` is required: a missing or invalid date is a 400, not a database error. */
+  private requiredDate(date: string) {
+    const d = new Date(date ?? "");
+    if (!date || Number.isNaN(d.getTime())) throw new BadRequestException({ message: "Choose a date.", fields: { date: "Required (YYYY-MM-DD)" } });
+    return d;
+  }
+
   async listForCourseDate(courseId: string, date: string) {
-    const d = new Date(date);
+    const d = this.requiredDate(date);
     d.setHours(0, 0, 0, 0);
     return this.prisma.attendanceRecord.findMany({
       where: { courseId, date: d },

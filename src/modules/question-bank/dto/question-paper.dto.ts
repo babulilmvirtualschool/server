@@ -133,6 +133,11 @@ export class PaperLayoutDto {
   @IsOptional()
   @IsIn(['ROW', 'GRID'])
   options?: 'ROW' | 'GRID';
+
+  @ApiPropertyOptional({ enum: ['EN', 'UR'], description: 'Paper language: UR = right to left with Urdu headings (client 29 Oct)' })
+  @IsOptional()
+  @IsIn(['EN', 'UR'])
+  language?: 'EN' | 'UR';
 }
 
 /** PDF1 12.1 paper title / header + 12.3 layout. */

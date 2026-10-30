@@ -236,7 +236,7 @@ Patterns to copy:
   that subject) and change only their own questions; admins everything. **Paper generator** (PDF1 12.1–12.3, `question-bank/question-papers.*`):
   `PaperPattern` (VIA subject: name, className, chapters Int[], `rows` Json `[{chapterNo?, type, difficulty?, count, marks}]`, `header` Json
   {schoolName, examName, totalMinutes, totalMarks, instructions}, createdById), `QuestionPaper` (VIA subject: title, schoolName, examName, className,
-  totalMinutes, totalMarks, instructions, chapters, `layout` {numbering ALPHA | ROMAN, options ROW | GRID}, status DRAFT | FINAL, optional `examPaperId`
+  totalMinutes, totalMarks, instructions, chapters, `layout` {numbering ALPHA | ROMAN, options ROW | GRID, language EN | UR (2026-10-30, Urdu papers right to left)}, status DRAFT | FINAL, optional `examPaperId`
   @unique → ExamPaper SetNull, createdById) and `QuestionPaperItem` (VIA paper → subject: question → BankQuestion **Restrict**, orderIndex, marks override).
   Automatic generation picks random **active** questions per row (chapter = the row's or the paper's chapters; class = the paper's or none); a bank question on
   any paper can't be deleted (409 — make it inactive). The migration copied the old generated papers (ExamPaperQuestion) into QuestionPaper rows linked to
@@ -490,7 +490,7 @@ slides[{image {key,name}, tagline?}] ≤ 15, slidingText[] ≤ 20}`).
 
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,
-`GET attendance/reports?courseId&date`, `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
+`GET attendance/reports?courseId&date` (the two by-date reads answer 400 without a valid `date`), `GET courses/:courseId/roster`; A: `GET attendance/sessions?from&to&courseId` (last 200 records grouped);
 S: `GET me/attendance?from&to` (`{total, counts, records}`); T,STAFF: `POST|GET me/teacher-attendance` (no future dates; POST = submit for approval,
 status PRESENT|LATE|ABSENT only, 400 if that day is already approved; GET → `{total, counts}` of APPROVED days + `pending` + all `records`);
 A: `POST teacher-attendance/bulk` (`{date, entries:[{teacherId, status, remarks?}]}` — admin marks staff, stored APPROVED),
