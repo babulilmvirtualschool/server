@@ -21,7 +21,7 @@ import {
 const day = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const OPEN: InvoiceStatus[] = [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE];
 
 const orderInclude = {

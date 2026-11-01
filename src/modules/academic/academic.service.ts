@@ -454,7 +454,7 @@ export class AcademicService {
       include: { student: { include: { user: { select: { firstName: true, lastName: true } } } } },
     });
     const name = (e: (typeof enrollments)[number]) =>
-      `${e.student.user.firstName} ${e.student.user.lastName}`.trim();
+      [e.student.user.firstName, e.student.user.lastName].filter((x) => x && x !== '.').join(' ');
     const missing = dto.studentIds.filter((id) => !enrollments.some((e) => e.studentId === id));
     if (missing.length) {
       throw new BadRequestException(
@@ -503,7 +503,7 @@ export class AcademicService {
     if (enrollments.length !== dto.studentIds.length) {
       throw new BadRequestException('Some selected students are not active in this class any more. Reload the list.');
     }
-    const name = (e: (typeof enrollments)[number]) => `${e.student.user.firstName} ${e.student.user.lastName}`.trim();
+    const name = (e: (typeof enrollments)[number]) => [e.student.user.firstName, e.student.user.lastName].filter((x) => x && x !== '.').join(' ');
 
     if (dto.graduate) {
       const now = new Date();

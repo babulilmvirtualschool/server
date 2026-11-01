@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CONDUCT_ITEMS, ConductSheetQueryDto, ListConductDto, SaveConductSheetDto } from './dto/conduct.dto';
 
 const day = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const rowInclude = {
   student: { select: { id: true, admissionNo: true, user: { select: { firstName: true, lastName: true } } } },
   section: { select: { id: true, name: true, class: { select: { id: true, name: true } } } },

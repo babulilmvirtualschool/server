@@ -143,7 +143,7 @@ export class UsersService {
       const e = u.studentProfile?.enrollments[0];
       return {
         id: u.id,
-        name: `${u.firstName} ${u.lastName}`.trim(),
+        name: [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' '),
         username: u.username,
         email: u.email,
         role: u.role,
@@ -155,7 +155,7 @@ export class UsersService {
         level: e?.section.class.level ?? null,
         employeeCode: u.teacherProfile?.employeeCode ?? null,
         designation: u.teacherProfile?.designation ?? null,
-        children: (u.parentProfile?.children ?? []).map((c) => `${c.student.user.firstName} ${c.student.user.lastName}`.trim()),
+        children: (u.parentProfile?.children ?? []).map((c) => [c.student.user.firstName, c.student.user.lastName].filter((x) => x && x !== '.').join(' ')),
       };
     });
     if (q.role === Role.STUDENT) {
@@ -445,7 +445,7 @@ export class UsersService {
         userId: u.id,
         studentId: u.studentProfile?.id ?? null,
         admissionNo: u.studentProfile?.admissionNo ?? null,
-        name: `${u.firstName} ${u.lastName}`.trim(),
+        name: [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' '),
         religion: u.studentProfile?.religion ?? null,
         gender: u.gender,
         dateOfBirth: u.dateOfBirth,
@@ -2223,7 +2223,7 @@ export class UsersService {
     if (users.length !== ids.length || users.some((u) => !u.studentProfile)) throw new NotFoundException('Some students were not found');
     const already = users.filter((u) => u.studentProfile!.dischargedAt);
     if (already.length) {
-      throw new ConflictException(`Already discharged: ${already.map((u) => `${u.firstName} ${u.lastName}`).join(', ')}`);
+      throw new ConflictException(`Already discharged: ${already.map((u) => [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ')).join(', ')}`);
     }
     const leavingDate = new Date(`${dto.leavingDate.slice(0, 10)}T00:00:00.000Z`);
     const parentIds = [...new Set(users.flatMap((u) => u.studentProfile!.parents.map((p) => p.parentId)))];

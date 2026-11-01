@@ -95,7 +95,7 @@ export class ReportsService {
     return {
       student: {
         id: s.id,
-        name: `${s.user.firstName} ${s.user.lastName}`.trim(),
+        name: [s.user.firstName, s.user.lastName].filter((x) => x && x !== '.').join(' '),
         admissionNo: s.admissionNo,
         admissionDate: s.admissionDate,
         avatarKey: s.user.avatarKey,

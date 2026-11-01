@@ -115,7 +115,7 @@ export class AttendanceRulesService {
     return rows
       .map((r) => ({
         teacherId: r.teacherId,
-        name: `${r.teacher.user.firstName} ${r.teacher.user.lastName}`.trim(),
+        name: [r.teacher.user.firstName, r.teacher.user.lastName].filter((x) => x && x !== '.').join(' '),
         employeeCode: r.teacher.employeeCode,
         avatarKey: r.teacher.user.avatarKey,
         shift: r.shift,

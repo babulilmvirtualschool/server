@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AnswerLivePollDto, CreateLivePollDto } from './dto/live-poll.dto';
 
 const RECENT_HOURS = 72;
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 
 type PollRow = Prisma.LiveClassPollGetPayload<{ include: { responses: { include: { student: { select: { id: true; user: { select: { firstName: true; lastName: true } } } } } } } }>;
 

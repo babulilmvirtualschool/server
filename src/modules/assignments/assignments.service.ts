@@ -19,7 +19,7 @@ import { ownUploads } from '../../common/utils/own-uploads';
 import { publicUserSelect } from '../../common/utils/public-user.select';
 
 const utcDay = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 
 const courseLabelSelect = {
   id: true,

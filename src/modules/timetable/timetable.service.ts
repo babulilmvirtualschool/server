@@ -358,7 +358,7 @@ export class TimetableService {
           classLabel,
           courseId,
           subject: c.subject.name,
-          teacher: `${c.teacher.user.firstName} ${c.teacher.user.lastName}`.trim(),
+          teacher: [c.teacher.user.firstName, c.teacher.user.lastName].filter((x) => x && x !== '.').join(' '),
           missing: n,
         });
       }

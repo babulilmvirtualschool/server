@@ -6,7 +6,7 @@ import { FeeLedgerQueryDto, FeeRegisterQueryDto, FeeReportQueryDto } from './dto
 import { FinanceService } from './finance.service';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const OPEN: InvoiceStatus[] = [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE];
 const STATUS_LABEL: Record<InvoiceStatus, string> = { PENDING: 'UNPAID', OVERDUE: 'UNPAID', PARTIAL: 'PARTIAL', PAID: 'PAID', CANCELLED: 'CANCELLED' };
 const todayIso = () => new Date().toISOString().slice(0, 10);

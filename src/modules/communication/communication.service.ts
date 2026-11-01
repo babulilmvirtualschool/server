@@ -4,7 +4,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatPairQueryDto, CreateComplaintDto, ListComplaintsDto, RateTeacherDto, SendChatDto, UpdateComplaintDto } from './dto/communication.dto';
 
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const userSel = { id: true, firstName: true, lastName: true, avatarKey: true, role: true } satisfies Prisma.UserSelect;
 type Contact = { userId: string; name: string; avatarKey: string | null; role: Role; detail: string };
 

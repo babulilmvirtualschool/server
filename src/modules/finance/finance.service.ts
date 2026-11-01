@@ -65,7 +65,7 @@ export type ChallanLine = {
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const valueOff = (base: number, valueType: DiscountValueType, value: number) =>
   round2(Math.min(base, valueType === DiscountValueType.PERCENT ? (base * value) / 100 : value));
 const OPEN: InvoiceStatus[] = [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE];

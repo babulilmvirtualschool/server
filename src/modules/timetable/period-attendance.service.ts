@@ -31,7 +31,7 @@ const utcDay = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const weekdayOf = (d: string) => WEEKDAYS[utcDay(d).getUTCDay()];
 const todayYmd = () => ymd(new Date());
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const ABSENT_LIKE: TeacherAttendanceStatus[] = [TeacherAttendanceStatus.ABSENT, TeacherAttendanceStatus.ON_LEAVE];
 
 const teacherSelect = { id: true, employeeCode: true, user: { select: { firstName: true, lastName: true } } } as const;

@@ -20,7 +20,7 @@ import {
 } from './dto/exam.dto';
 import { publicUserSelect } from '../../common/utils/public-user.select';
 
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const endOf = (p: { scheduledAt: Date; durationMinutes: number }) => new Date(p.scheduledAt.getTime() + p.durationMinutes * 60_000);
 const statusOf = (p: { scheduledAt: Date; durationMinutes: number }, now = new Date()) =>
   now < p.scheduledAt ? 'UPCOMING' : now < endOf(p) ? 'ACTIVE' : 'COMPLETED';

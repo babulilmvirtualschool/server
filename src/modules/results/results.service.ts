@@ -25,7 +25,7 @@ type Scale = { passPercent: number; bands: Band[] } | null;
 const AUTO: CategorySource[] = ['EXAM', 'QUIZ', 'ASSIGNMENT', 'HOMEWORK'];
 const round = (n: number) => Math.round(n * 100) / 100;
 const day = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 
 /** Grade band of a percentage: the band with the highest "from" not above it (gaps between bands fall to the lower one). */
 export function gradeFor(scale: Scale, pct: number | null) {

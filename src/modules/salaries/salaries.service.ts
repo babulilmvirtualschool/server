@@ -30,7 +30,7 @@ type Breakdown = {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const sum = (items: { amount: number }[]) => round2(items.reduce((n, i) => n + (Number(i.amount) || 0), 0));
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const utcDay = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
 const monthEnd = (period: string) => {
   const [y, m] = period.split('-').map(Number);

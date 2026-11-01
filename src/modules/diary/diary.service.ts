@@ -183,7 +183,7 @@ export class DiaryService {
     ]);
     const rows = enrolled
       .map((e) => ({
-        student: { id: e.student.id, name: `${e.student.user.firstName} ${e.student.user.lastName}`.trim(), rollNumber: e.rollNumber },
+        student: { id: e.student.id, name: [e.student.user.firstName, e.student.user.lastName].filter((x) => x && x !== '.').join(' '), rollNumber: e.rollNumber },
         submission: submissions.find((x) => x.studentId === e.student.id) ?? null,
       }))
       .sort(

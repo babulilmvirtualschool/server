@@ -26,7 +26,7 @@ import {
 
 const day = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((n, x) => n + x, 0) / xs.length) * 10) / 10 : null);
 /** Monday of the week of `d` (UTC). */
 const monday = (d: Date) => {

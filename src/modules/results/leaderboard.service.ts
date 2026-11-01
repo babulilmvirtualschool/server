@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { AttemptStatus, EnrollmentStatus, Role } from '@prisma/client';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,7 +8,7 @@ export const LEADERBOARD_WEIGHTS = { result: 40, quizzes: 20, homework: 20, star
 type Part = keyof typeof LEADERBOARD_WEIGHTS;
 const round = (n: number) => Math.round(n * 10) / 10;
 const avg = (xs: number[]) => (xs.length ? xs.reduce((m, x) => m + x, 0) / xs.length : null);
-const name = (u: { firstName: string; lastName: string }) => `${u.firstName} ${u.lastName}`.trim();
+const name = (u: { firstName: string; lastName: string }) => [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ');
 
 /**
  * PDF2 Leaderboards (Teacher 10, Student 3 / 9): this academic year's scores — result % of the latest published result, quizzes / online tests %,
@@ -97,7 +97,8 @@ export class LeaderboardService {
 
   async leaderboard(user: AuthUser, sectionId?: string) {
     const year = await this.prisma.academicYear.findFirst({ where: { isCurrent: true } });
-    if (!year) throw new NotFoundException('No current academic year');
+    // No current year yet (e.g. a school not set up): an empty board, not an error.
+    if (!year) return { weights: LEADERBOARD_WEIGHTS, resultTerm: null, sectionId: null, sections: [], rows: [], school: [], me: null };
     let me: string | null = null;
     let allowed: string[] | null = null;
     if (user.role === Role.STUDENT) {

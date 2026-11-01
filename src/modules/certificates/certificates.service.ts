@@ -5,7 +5,7 @@ import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCertificateDto, IdCardsQueryDto, ListCertificatesDto, PrefillCertificateDto, UpdateCertificateDto } from './dto/certificates.dto';
 
-const name = (u?: { firstName: string; lastName: string } | null) => (u ? `${u.firstName} ${u.lastName}`.trim() : '');
+const name = (u?: { firstName: string; lastName: string } | null) => (u ? [u.firstName, u.lastName].filter((x) => x && x !== '.').join(' ') : '');
 const ymd = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
 const day = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00.000Z`);
 const STAFF_TYPES: CertificateType[] = [CertificateType.EXPERIENCE];

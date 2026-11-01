@@ -198,7 +198,7 @@ export class AttendanceService {
         records
           .map((r) =>
             r.markedBy
-              ? `${r.markedBy.firstName} ${r.markedBy.lastName}`.trim()
+              ? [r.markedBy.firstName, r.markedBy.lastName].filter((x) => x && x !== '.').join(' ')
               : null,
           )
           .filter(Boolean),
@@ -300,7 +300,7 @@ export class AttendanceService {
       session.counts[r.status] = (session.counts[r.status] ?? 0) + 1;
       if (r.markedBy) {
         session.markedBy.add(
-          `${r.markedBy.firstName} ${r.markedBy.lastName}`.trim(),
+          [r.markedBy.firstName, r.markedBy.lastName].filter((x) => x && x !== '.').join(' '),
         );
       }
     }
@@ -495,7 +495,7 @@ export class AttendanceService {
         select: { user: { select: { firstName: true, lastName: true } } },
       });
       throw new BadRequestException(
-        `No attendance on ${dto.date.slice(0, 10)} for ${names.map((n) => `${n.user.firstName} ${n.user.lastName}`.trim()).join(', ')} (${reason}).`,
+        `No attendance on ${dto.date.slice(0, 10)} for ${names.map((n) => [n.user.firstName, n.user.lastName].filter((x) => x && x !== '.').join(' ')).join(', ')} (${reason}).`,
       );
     }
     return this.prisma.$transaction(
@@ -551,7 +551,7 @@ export class AttendanceService {
     const students = enrollments
       .map((e) => ({
         studentId: e.student.id,
-        name: `${e.student.user.firstName} ${e.student.user.lastName}`.trim(),
+        name: [e.student.user.firstName, e.student.user.lastName].filter((x) => x && x !== '.').join(' '),
         avatarKey: e.student.user.avatarKey,
         rollNumber: e.rollNumber,
         records: byStudent.get(e.student.id) ?? {},
@@ -588,7 +588,7 @@ export class AttendanceService {
     const staff = people
       .map((p) => ({
         teacherId: p.id,
-        name: `${p.user.firstName} ${p.user.lastName}`.trim(),
+        name: [p.user.firstName, p.user.lastName].filter((x) => x && x !== '.').join(' '),
         avatarKey: p.user.avatarKey,
         employeeCode: p.employeeCode,
         role: p.user.role,
@@ -647,7 +647,7 @@ export class AttendanceService {
         return {
           studentId: s.id,
           admissionNo: s.admissionNo,
-          name: `${s.user.firstName} ${s.user.lastName}`.trim(),
+          name: [s.user.firstName, s.user.lastName].filter((x) => x && x !== '.').join(' '),
           rollNumber: e?.rollNumber ?? null,
           section: e ? { id: e.section.id, label: `${e.section.class.name} · ${e.section.name}` } : null,
           counts,
@@ -710,7 +710,7 @@ export class AttendanceService {
         student: {
           id: r.student.id,
           admissionNo: r.student.admissionNo,
-          name: `${r.student.user.firstName} ${r.student.user.lastName}`.trim(),
+          name: [r.student.user.firstName, r.student.user.lastName].filter((x) => x && x !== '.').join(' '),
           rollNumber,
         },
         section: section
