@@ -14,25 +14,25 @@ import { ChatPairQueryDto, CreateComplaintDto, ListComplaintsDto, RateTeacherDto
 export class CommunicationController {
   constructor(private readonly svc: CommunicationService) {}
 
-  @Roles(Role.TEACHER, Role.STUDENT)
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
   @Get('chat/inbox')
   inbox(@CurrentUser() user: AuthUser) {
     return this.svc.inbox(user);
   }
 
-  @Roles(Role.TEACHER, Role.STUDENT)
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
   @Get('chat/unread')
   unread(@CurrentUser() user: AuthUser) {
     return this.svc.unreadCount(user);
   }
 
-  @Roles(Role.TEACHER, Role.STUDENT)
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
   @Get('chat/with/:userId')
   conversation(@Param('userId') userId: string, @CurrentUser() user: AuthUser) {
     return this.svc.conversation(user, userId);
   }
 
-  @Roles(Role.TEACHER, Role.STUDENT)
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
   @Post('chat/messages')
   send(@Body() dto: SendChatDto, @CurrentUser() user: AuthUser) {
     return this.svc.send(user, dto);

@@ -106,7 +106,8 @@ const VIA: Record<string, Scope> = {
   PeriodLeaveRequest: teacher,
   FeeType: (c) => ({ class: year(c) }),
   FeeDiscount: student,
-  ChatMessage: (c, u) => ({ sender: userScope(c, u) }),
+  // Either side: the main admin's account belongs to one school but chats with people of both.
+  ChatMessage: (c, u) => ({ OR: [{ sender: userScope(c, u) }, { recipient: userScope(c, u) }] }),
   TeacherRating: teacher,
   ClassVisit: teacher,
   CoordinatorCheck: (c) => ({ section: { class: year(c) } }),

@@ -265,7 +265,9 @@ Patterns to copy:
 - Day 12–13 (2026-10-28, migration `20261029060000_communication_certificates_coordinator_stock_website`, additive, 13 new tables) —
   **communication** (`modules/communication`, PDF1 7.1 / 7.2): `ChatMessage` (VIA sender: sender, recipient (User ids), body, readAt) — a student chats with the
   teachers of their current classes (subject teachers + class teacher), a teacher with the students of the classes they teach or are class teacher of; the admin
-  reads every conversation. `Complaint` (DIRECT campus: author (parent or student User), student (the child / themself), optional teacher of that student, kind
+  reads every conversation. Since 2026-11-02 (client extra, not in the documents; no migration) an admin also chats one-on-one with any active student or teacher of the
+  school; those people see that admin as a contact and can reply only once the admin has written to them; other admins do not see these chats (`chat/conversations` and
+  `chat/conversation` cover teacher-student pairs only). `ChatMessage` is now scoped by sender OR recipient because the main admin's account belongs to one school. `Complaint` (DIRECT campus: author (parent or student User), student (the child / themself), optional teacher of that student, kind
   COMPLAINT | SUGGESTION, subject, body, status OPEN | IN_PROGRESS | RESOLVED | CLOSED, reply / repliedBy / repliedAt). `TeacherRating` (VIA teacher: parent User +
   teacher unique, stars 1–5, comment) — parents rate their children's teachers, only admins see them. **certificates** (`modules/certificates`, PDF2 Admin 2):
   `Certificate` (DIRECT: certificateNo `ON-CRT-<year>-0001` / `PH-…` (unique, serial per school), type CHARACTER | BONAFIDE | TRANSFER | MERIT | APPRECIATION |
@@ -455,7 +457,7 @@ S: `GET me/result-cards` (published results: `{cards:[{term, student, sectionSiz
 assignments, homework (checked), assessments (MANUAL categories of published results)}`); P: `GET children/:studentId/result-cards|grades`. A,T,S: `GET leaderboard?sectionId`
 (`{weights, resultTerm, sectionId, sections, rows (ranked class), school (top 10), me}`; S = own class, T = classes they teach).
 
-**communication** (Day 12) — T,S: `GET chat/inbox` (contacts with `unread` and `lastMessage`, newest first), `GET chat/unread`, `GET chat/with/:userId` (contact + messages
+**communication** (Day 12) — A,T,S: `GET chat/inbox` (contacts with `unread` and `lastMessage`, newest first), `GET chat/unread`, `GET chat/with/:userId` (contact + messages
 (max 500); marks theirs read; 403 if not a contact), `POST chat/messages` (`{recipientId, body ≤ 2000}`); A: `GET chat/conversations?search` (teacher ↔ student pairs with
 count + last message), `GET chat/conversation?a&b` (User ids). S,P: `GET complaints/options` (the student / each child with their teachers), `POST complaints`
 (`{kind?, studentId (parents), teacherId?, subject 3–200, body 3–5000}`; 400 `fields` for a child / teacher that doesn't fit), `GET me/complaints`; A: `GET complaints?status&kind&search`

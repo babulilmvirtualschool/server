@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class SendChatDto {
-  @ApiProperty({ description: 'User id of the teacher / student' })
+  @ApiProperty({ description: 'User id of the teacher / student / admin' })
   @IsString()
   recipientId!: string;
 

@@ -9,7 +9,8 @@ const userSel = { id: true, firstName: true, lastName: true, avatarKey: true, ro
 type Contact = { userId: string; name: string; avatarKey: string | null; role: Role; detail: string };
 
 /**
- * PDF1 7 Communication (client 15 Oct): teacher <-> student chat inside the portal (admin can read every conversation), parent and student
+ * PDF1 7 Communication (client 15 Oct): teacher <-> student chat inside the portal (admin can read every conversation; since 2 Nov an admin also
+ * chats one-on-one with any student or teacher of the school, who reply once that admin has written to them), parent and student
  * complaints / suggestions to the admin with status All | Open | In-Progress | Resolved | Closed, and parents' star marks for teachers (admin only).
  */
 @Injectable()
@@ -18,8 +19,46 @@ export class CommunicationService {
 
   // ---------------- chat ----------------
 
-  /** People this user may chat with: a student's teachers (subjects + class teacher) / a teacher's students (current year). */
+  /** Admins who have written to this student or teacher: they can reply. */
+  private async adminsWhoWrote(userId: string): Promise<Contact[]> {
+    const rows = await this.prisma.chatMessage.findMany({
+      where: { recipientId: userId, sender: { role: Role.ADMIN } },
+      distinct: ['senderId'],
+      select: { sender: { select: userSel } },
+    });
+    return rows.map(({ sender: u }) => ({ userId: u.id, name: name(u), avatarKey: u.avatarKey, role: u.role, detail: 'School administration' }));
+  }
+
+  /** An admin's contacts: the active teachers, then the active students, of the school; or just one of them. */
+  private async adminContacts(onlyUserId?: string): Promise<Contact[]> {
+    const users = await this.prisma.user.findMany({
+      where: { role: { in: [Role.TEACHER, Role.STUDENT] }, isActive: true, ...(onlyUserId ? { id: onlyUserId } : {}) },
+      select: {
+        ...userSel,
+        studentProfile: {
+          select: {
+            enrollments: {
+              where: { status: EnrollmentStatus.ACTIVE, academicYear: { isCurrent: true } },
+              select: { rollNumber: true, section: { select: { name: true, class: { select: { name: true } } } } },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    const detail = (u: (typeof users)[number]) => {
+      if (u.role === Role.TEACHER) return 'Teacher';
+      const e = u.studentProfile?.enrollments[0];
+      return e ? `${e.section.class.name} · ${e.section.name}${e.rollNumber ? ` · Roll ${e.rollNumber}` : ''}` : 'Student';
+    };
+    return users
+      .map((u): Contact => ({ userId: u.id, name: name(u), avatarKey: u.avatarKey, role: u.role, detail: detail(u) }))
+      .sort((a, b) => Number(b.role === Role.TEACHER) - Number(a.role === Role.TEACHER) || a.detail.localeCompare(b.detail) || a.name.localeCompare(b.name));
+  }
+
+  /** People this user may chat with: a student's teachers (subjects + class teacher) / a teacher's students (current year), plus admins who wrote to them. */
   async contacts(user: AuthUser): Promise<Contact[]> {
+    if (user.role === Role.ADMIN) return this.adminContacts();
     if (user.role === Role.STUDENT) {
       const s = await this.prisma.studentProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
       if (!s) throw new ForbiddenException();
@@ -45,7 +84,8 @@ export class CommunicationService {
         for (const c of e.section.courses) add(c.teacher?.user, c.subject.name);
         add(e.section.classTeacher?.user, 'Class teacher');
       }
-      return [...map.values()].map(({ parts, ...c }) => ({ ...c, detail: parts.join(', ') })).sort((a, b) => a.name.localeCompare(b.name));
+      const teachers = [...map.values()].map(({ parts, ...c }): Contact => ({ ...c, detail: parts.join(', ') }));
+      return [...teachers, ...(await this.adminsWhoWrote(user.id))].sort((a, b) => a.name.localeCompare(b.name));
     }
     if (user.role === Role.TEACHER) {
       const t = await this.prisma.teacherProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
@@ -68,7 +108,7 @@ export class CommunicationService {
           if (!map.has(u.id)) map.set(u.id, { userId: u.id, name: name(u), avatarKey: u.avatarKey, role: u.role, detail: `${s.class.name} · ${s.name}${e.rollNumber ? ` · Roll ${e.rollNumber}` : ''}` });
         }
       }
-      return [...map.values()].sort((a, b) => a.detail.localeCompare(b.detail) || a.name.localeCompare(b.name));
+      return [...map.values(), ...(await this.adminsWhoWrote(user.id))].sort((a, b) => a.detail.localeCompare(b.detail) || a.name.localeCompare(b.name));
     }
     return [];
   }
@@ -104,6 +144,11 @@ export class CommunicationService {
   }
 
   private async assertContact(user: AuthUser, otherId: string) {
+    if (user.role === Role.ADMIN) {
+      const [a] = await this.adminContacts(otherId);
+      if (!a) throw new ForbiddenException('You can only message active students and teachers of this school.');
+      return a;
+    }
     const contacts = await this.contacts(user);
     const c = contacts.find((x) => x.userId === otherId);
     if (!c) throw new ForbiddenException(user.role === Role.STUDENT ? 'You can only message your own teachers.' : 'You can only message students of your classes.');
@@ -142,7 +187,10 @@ export class CommunicationService {
 
   /** Admin: every teacher-student conversation of the school, newest first. */
   async adminConversations(search?: string) {
+    // An admin's own chats are private to that admin (their inbox), not part of this list.
+    const notAdmin = { role: { in: [Role.TEACHER, Role.STUDENT] } };
     const rows = await this.prisma.chatMessage.findMany({
+      where: { sender: notAdmin, recipient: notAdmin },
       orderBy: { createdAt: 'desc' },
       take: 5000,
       select: { senderId: true, recipientId: true, body: true, createdAt: true },
@@ -176,7 +224,8 @@ export class CommunicationService {
 
   async adminConversation(q: ChatPairQueryDto) {
     const users = await this.prisma.user.findMany({ where: { id: { in: [q.a, q.b] } }, select: userSel });
-    if (users.length !== 2) throw new NotFoundException('Conversation not found');
+    // Only teacher-student conversations: another admin's chat stays private.
+    if (users.length !== 2 || !users.some((x) => x.role === Role.TEACHER) || !users.some((x) => x.role === Role.STUDENT)) throw new NotFoundException('Conversation not found');
     return { users: users.map((x) => ({ id: x.id, name: name(x), role: x.role, avatarKey: x.avatarKey })), messages: await this.messagesBetween(q.a, q.b) };
   }
 
