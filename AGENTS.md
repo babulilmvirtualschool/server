@@ -572,7 +572,7 @@ grade, stars, remarks); A,T(owner): `GET diary/:id/homework` (every student of t
 (default true), grade?, stars? 1–5, remarks?}`); `GET courses/:courseId/diary` adds `homework {submitted, checked}` per entry.
 
 **announcements** — A,T: `POST announcements` (T only `COURSE` with own courseId or `SECTION` where class teacher), `PATCH|DELETE announcements/:id`
-(author or A); auth: `GET announcements` (visibility-filtered by role/enrollment/children).
+(author or A; a changed target is re-checked); A,T: `GET announcements/targets` (current-year classes and courses they can post to); auth: `GET announcements` (A sees all of the school; others filtered by role / current active enrollment / children; `TEACHERS` includes STAFF).
 
 **attendance-settings** (A) — `GET|PUT attendance-settings` (`{mode, lateThresholdMinutes 0–240, schedules}`; 7 days each, start < end on open days),
 `GET|PUT attendance-settings/shifts` (`{sections:[{sectionId, shift|null}]}`), `GET staff-timings`, `PUT|DELETE staff-timings/:teacherId`

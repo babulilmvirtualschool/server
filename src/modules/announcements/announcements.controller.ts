@@ -41,6 +41,12 @@ export class AnnouncementsController {
   }
 
   @Roles(Role.ADMIN, Role.TEACHER)
+  @Get('targets')
+  targets(@CurrentUser() user: AuthUser) {
+    return this.svc.targets(user);
+  }
+
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Patch(':id')
   update(
     @Param('id') id: string,
