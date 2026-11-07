@@ -129,7 +129,7 @@ Patterns to copy:
 - JSON columns: `Assignment.attachments`, `AssignmentSubmission.attachments` (`[{key,name,size?,mime?}]`),
   `FeeInvoice.lineItems` (snapshot), salary `allowances/deductions/breakdown`, `QuizAttempt.questionOrder/optionOrder`.
 - Money is `Float` (no currency field; PKR assumed by UI).
-- Migrations (31) in `prisma/migrations/` — from `20260419003326_initiate` to the Day 12–13 `20261029060000_communication_certificates_coordinator_stock_website`.
+- Migrations (32) in `prisma/migrations/` — from `20260419003326_initiate` to `20261107060000_website_social_links` (2026-11-07, additive: `WebsiteSettings.socialLinks`).
 - Day 1 (2026-10-15, migration `20261015063852_religion_photo_passwords_discharge`, additive): `StudentProfile.religion` /
   `AdmissionApplication.religion` (Islam | Christianity | Hinduism | Sikhism | Other, optional); `User.issuedPasswordEnc` = the password an
   admin issued, AES-256-GCM sealed by `common/utils/password-vault.ts` (key derived from `JWT_REFRESH_SECRET` — rotating that secret makes
@@ -287,7 +287,8 @@ Patterns to copy:
   challan line `{feeTypeId: "", name: "Stock items", net: total, stockOrderId, details: "ON-SO-000001: Shirt x 2, …"}` to the student's latest unpaid challan
   (total raised; Regenerate keeps stock lines; deleting the challan frees the order); such orders count as paid when the challan is PAID. **website**
   (`modules/website`, PDF2 Admin 5): `WebsiteSettings` (one row id "main", not per school — the website is shared): popupEnabled, popupImageKey, popupLink,
-  ctaNumber, slides Json [{imageKey, imageName, tagline}], slidingText Json string[]; images are the admin's own finalized OTHER uploads (PNG / JPG / WebP / GIF).
+  ctaNumber, slides Json [{imageKey, imageName, tagline}], slidingText Json string[], socialLinks Json {facebook, instagram, twitter, linkedin, youtube} (2026-11-07; null = never
+  saved, the website keeps its built-in Facebook link; empty ones are dropped); images are the admin's own finalized OTHER uploads (PNG / JPG / WebP / GIF).
 - `DiaryEntry` (courseId, `date @db.Date`, content, authorId?): one per course per day (`@@unique([courseId, date])`); dates are
   parsed as UTC midnight (`YYYY-MM-DD`), so they are timezone-safe.
 - `TeacherAttendanceRecord.approvalStatus` (PENDING|APPROVED|REJECTED): teacher self-submissions are PENDING and only count once an
@@ -487,8 +488,8 @@ quantity (+ in; adjustment ±), unitPrice?, date, note?}`; 409 below zero), `DEL
 adjusted, closing, value, sales, purchase cost + totals). P: `GET stock-shop` (active items with `available`, children), `GET me/stock-orders`, `POST me/stock-orders/:id/cancel` (PENDING only).
 
 **website** (Day 13) — public: `GET public/website` (`{popup {show, imageUrl (short-lived link or null = the built-in banner), link}, ctaNumber, slides[{imageUrl, tagline}],
-slidingText}`; before the first save show = true); A: `GET|PUT website-settings` (`{popupEnabled, popupImage {key,name} | null, popupLink (/… or https://…), ctaNumber,
-slides[{image {key,name}, tagline?}] ≤ 15, slidingText[] ≤ 20}`).
+slidingText, socialLinks (null = never saved)}`; before the first save show = true); A: `GET|PUT website-settings` (`{popupEnabled, popupImage {key,name} | null, popupLink (/… or https://…), ctaNumber,
+slides[{image {key,name}, tagline?}] ≤ 15, slidingText[] ≤ 20, socialLinks? {facebook?, instagram?, twitter?, linkedin?, youtube?} (http(s) links; left out = unchanged)}`).
 
 **attendance** — A,T: `POST attendance/bulk` (`{date, courseId?|sectionId?, entries:[{studentId,status,remarks?}]}`; T must own course
 or be section's class teacher), `GET sections/:sectionId/attendance?date`, `GET courses/:courseId/attendance?date`,

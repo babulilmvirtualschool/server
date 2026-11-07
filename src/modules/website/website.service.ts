@@ -7,8 +7,10 @@ import { R2Service } from '../media/r2.service';
 import { ImageRefDto, WebsiteSettingsDto } from './dto/website.dto';
 
 type Slide = { imageKey: string; imageName?: string; tagline?: string };
+const SOCIAL_KEYS = ['facebook', 'instagram', 'twitter', 'linkedin', 'youtube'] as const;
+type SocialLinks = Partial<Record<(typeof SOCIAL_KEYS)[number], string>>;
 
-/** PDF2 Admin 5 website management: popup image, CTA number, sliding images, sliding text (one row for the shared website). */
+/** PDF2 Admin 5 website management: popup image, CTA number, sliding images, sliding text, social media links (one row for the shared website). */
 @Injectable()
 export class WebsiteService {
   constructor(
@@ -31,6 +33,8 @@ export class WebsiteService {
       ctaNumber: s?.ctaNumber ?? '',
       slides: await Promise.all(slides.map(async (sl) => ({ image: { key: sl.imageKey, name: sl.imageName ?? 'Slide', url: await this.r2.presignGet(sl.imageKey) }, tagline: sl.tagline ?? '' }))),
       slidingText: ((s?.slidingText ?? []) as string[]) ?? [],
+      /** null = never saved: the website keeps its built-in Facebook link. */
+      socialLinks: (s?.socialLinks ?? null) as SocialLinks | null,
       updatedAt: s?.updatedAt ?? null,
     };
   }
@@ -51,6 +55,9 @@ export class WebsiteService {
       ctaNumber: dto.ctaNumber?.trim() || null,
       slides: dto.slides.map((s) => ({ imageKey: s.image.key, imageName: s.image.name, tagline: s.tagline?.trim() || '' })) as unknown as Prisma.InputJsonValue,
       slidingText: dto.slidingText.map((t) => t.trim()).filter(Boolean),
+      socialLinks: dto.socialLinks
+        ? (Object.fromEntries(SOCIAL_KEYS.map((k) => [k, dto.socialLinks?.[k]?.trim()]).filter(([, v]) => v)) as Prisma.InputJsonValue)
+        : undefined,
     };
     await this.prisma.websiteSettings.upsert({ where: { id: 'main' }, create: { id: 'main', ...data }, update: data });
     return this.adminView();
@@ -59,7 +66,7 @@ export class WebsiteService {
   /** What the public website shows (images as short-lived links; empty parts keep the built-in content). */
   async publicView() {
     const s = await this.row();
-    if (!s) return { popup: { show: true, imageUrl: null, link: null }, ctaNumber: null, slides: [], slidingText: [] };
+    if (!s) return { popup: { show: true, imageUrl: null, link: null }, ctaNumber: null, slides: [], slidingText: [], socialLinks: null };
     const slides = (s.slides ?? []) as Slide[];
     return {
       /** Off = no popup; on without an image = the website's built-in admissions banner; on with an image = that image. */
@@ -67,6 +74,7 @@ export class WebsiteService {
       ctaNumber: s.ctaNumber,
       slides: await Promise.all(slides.map(async (sl) => ({ imageUrl: await this.r2.presignGet(sl.imageKey), tagline: sl.tagline ?? '' }))),
       slidingText: (s.slidingText ?? []) as string[],
+      socialLinks: (s.socialLinks ?? null) as SocialLinks | null,
     };
   }
 }

@@ -20,6 +20,17 @@ class SlideDto {
   tagline?: string;
 }
 
+const SOCIAL_LINK = /^(https?:\/\/[^\s]+)?$/i;
+const SOCIAL_MESSAGE = 'Use a full link that starts with https://';
+
+export class SocialLinksDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) @Matches(SOCIAL_LINK, { message: SOCIAL_MESSAGE }) facebook?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) @Matches(SOCIAL_LINK, { message: SOCIAL_MESSAGE }) instagram?: string;
+  @ApiPropertyOptional({ description: 'Twitter / X' }) @IsOptional() @IsString() @MaxLength(300) @Matches(SOCIAL_LINK, { message: SOCIAL_MESSAGE }) twitter?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) @Matches(SOCIAL_LINK, { message: SOCIAL_MESSAGE }) linkedin?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) @Matches(SOCIAL_LINK, { message: SOCIAL_MESSAGE }) youtube?: string;
+}
+
 export class WebsiteSettingsDto {
   @ApiProperty() @IsBoolean() popupEnabled!: boolean;
 
@@ -56,4 +67,10 @@ export class WebsiteSettingsDto {
   @IsString({ each: true })
   @MaxLength(120, { each: true })
   slidingText!: string[];
+
+  @ApiPropertyOptional({ type: SocialLinksDto, description: 'Footer social media links; empty ones are not shown. Left out = unchanged.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SocialLinksDto)
+  socialLinks?: SocialLinksDto;
 }

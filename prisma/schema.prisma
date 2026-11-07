@@ -2318,5 +2318,7 @@ model WebsiteSettings {
   slides        Json?
   /// ["ADMISSIONS OPEN 2026-27", ...]
   slidingText   Json?
+  /// {facebook, instagram, twitter, linkedin, youtube}; null = never saved (the website keeps its built-in Facebook link)
+  socialLinks   Json?
   updatedAt     DateTime @updatedAt
 }
